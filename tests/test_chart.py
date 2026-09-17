@@ -263,7 +263,7 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(len([1 for kind, _ in docs if kind == "Deployment"]), 3)
 
     def test_kafka_dead_letter_topics_cannot_overlap(self):
-        for topic in ["mongo", "mongo.dlq"]:
+        for topic in ["mongo", "mongo.dlq", " mongo ", " mongo.dlq "]:
             values = copy.deepcopy(BASE)
             values["stores"]["mongo"]["kafka"] = copy.deepcopy(KAFKA)
             kafka = {**KAFKA, "topic": topic, "consumerGroup": "archive"}

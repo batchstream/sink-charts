@@ -18,9 +18,10 @@
 {{- $entry := dict "state" $settings.state "kafka" $kafka "workerEnabled" $worker.enabled "engineHash" (toJson (dict "engine" $engine "storage" $settings.storage "kafkaRuntime" (default dict $settings.kafka) "credentialRevision" (default "" $settings.credentialRevision) "runtime" $engineConfig "image" $.Values.image "discovery" $.Values.discovery) | sha256sum) }}
 {{- $_ := set $current $store $entry }}
 {{- if $kafka }}
-{{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "deadLetterTopic" "value" (default (printf "%s.dlq" $kafka.topic) $deadLetter.topic) "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
-{{- if hasKey $pair.seen $pair.value }}{{- fail (printf "Kafka %s must be unique per Store" $pair.name) }}{{- end }}
-{{- $_ := set $pair.seen $pair.value true }}
+{{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "deadLetterTopic" "value" (default (printf "%s.dlq" (trim $kafka.topic)) $deadLetter.topic) "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
+{{- $identity := trim $pair.value }}
+{{- if hasKey $pair.seen $identity }}{{- fail (printf "Kafka %s must be unique per Store" $pair.name) }}{{- end }}
+{{- $_ := set $pair.seen $identity true }}
 {{- end }}
 {{- end }}
 {{- if $hasInventory }}
