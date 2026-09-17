@@ -41,3 +41,26 @@
 {{- range $key, $_ := $s.pod.annotations -}}{{- if hasPrefix "sink.batchstream.io/" $key -}}{{- fail "pod.annotations cannot override chart configuration annotations" -}}{{- end -}}{{- end -}}
 {{- end -}}
 {{- if or (hasKey .Values.gateway.runtime.gateway "routes") (hasKey .Values.gateway.runtime.gateway "dns_refresh_interval") (hasKey .Values.gateway.runtime.grpc "address") (hasKey (default dict .Values.gateway.runtime.service.request) "timeout") -}}{{- fail "Gateway routes, DNS refresh, listeners and request timeout are chart-managed" -}}{{- end -}}
+{{- range $store, $settings := .Values.stores -}}
+{{- if ne $settings.storage.driver "mongodb" -}}
+{{- $s := $settings.storage.search -}}
+{{- range $endpoint := $s.endpoints -}}
+{{- if regexMatch "^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*@" $endpoint -}}{{- fail "search endpoint URLs must not contain credentials; use Secret references" -}}{{- end -}}
+{{- end -}}
+{{- if and $s.username $s.usernameSecretRef -}}{{- fail "search username and usernameSecretRef are mutually exclusive" -}}{{- end -}}
+{{- $basic := or $s.username $s.usernameSecretRef -}}
+{{- if ne (not (empty $basic)) (not (empty $s.passwordSecretRef)) -}}{{- fail "search username and passwordSecretRef must be configured together" -}}{{- end -}}
+{{- if and $s.apiKeySecretRef $basic -}}{{- fail "search apiKeySecretRef cannot be combined with basic authentication" -}}{{- end -}}
+{{- end -}}
+{{- with $settings.kafka -}}
+{{- if gt (int (default 2 .minInSyncReplicas)) (int (default 3 .replicationFactor)) -}}{{- fail "Kafka minInSyncReplicas cannot exceed replicationFactor" -}}{{- end -}}
+{{- $runtime := default dict .runtime -}}
+{{- $topic := default dict $runtime.topic -}}
+{{- if or (hasKey $topic "name") (hasKey $topic "partitions") (hasKey $topic "replication_factor") (hasKey $topic "min_insync_replicas") (hasKey (default dict $runtime.consumer) "group_id") -}}{{- fail "Kafka identity and replication policy are chart-managed" -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- range $component := include "sink.components" . | fromJsonArray -}}
+{{- if ne $component.role "gateway" -}}
+{{- if or (hasKey $component.settings.runtime.grpc "address") (hasKey (default dict $component.settings.runtime.service.request) "timeout") -}}{{- fail "Store listeners and request timeout are chart-managed" -}}{{- end -}}
+{{- end -}}
+{{- end -}}

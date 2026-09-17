@@ -10,11 +10,15 @@
 {{- range $store, $settings := .Values.stores }}
 {{- $engine := mergeOverwrite (deepCopy $.Values.engineDefaults) (default dict $settings.engine) }}
 {{- $worker := mergeOverwrite (deepCopy $.Values.workerDefaults) (default dict $settings.worker) }}
-{{- $kafka := omit (default dict $settings.kafka) "lagThreshold" }}
-{{- $entry := dict "state" $settings.state "kafka" $kafka "workerEnabled" $worker.enabled "engineHash" (toJson $engine | sha256sum) }}
+{{- $kafka := omit (default dict $settings.kafka) "lagThreshold" "runtime" }}
+{{- $kafkaRuntime := default dict (default dict $settings.kafka).runtime }}
+{{- $deadLetter := default dict $kafkaRuntime.dead_letter }}
+{{- with $deadLetter.topic }}{{- $_ := set $kafka "deadLetterTopic" . }}{{- end }}
+{{- $engineConfig := include "sink.storeConfig" (dict "root" $ "role" "engine" "store" $store "settings" $engine "storage" $settings.storage "kafka" (default dict $settings.kafka)) }}
+{{- $entry := dict "state" $settings.state "kafka" $kafka "workerEnabled" $worker.enabled "engineHash" (toJson (dict "engine" $engine "storage" $settings.storage "kafkaRuntime" (default dict $settings.kafka) "credentialRevision" (default "" $settings.credentialRevision) "runtime" $engineConfig "image" $.Values.image "discovery" $.Values.discovery) | sha256sum) }}
 {{- $_ := set $current $store $entry }}
 {{- if $kafka }}
-{{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
+{{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "deadLetterTopic" "value" (default (printf "%s.dlq" $kafka.topic) $deadLetter.topic) "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
 {{- if hasKey $pair.seen $pair.value }}{{- fail (printf "Kafka %s must be unique per Store" $pair.name) }}{{- end }}
 {{- $_ := set $pair.seen $pair.value true }}
 {{- end }}
@@ -83,4 +87,20 @@ metadata:
 data:
   sink.yaml: |
     {{- include "sink.gatewayConfig" . | nindent 4 }}
+{{- end }}
+
+{{- range $component := include "sink.components" . | fromJsonArray }}
+{{- if ne $component.role "gateway" }}
+{{- $c := merge (dict "root" $) $component }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sink.componentName" $c }}
+  labels:
+    {{- include "sink.labels" $c | nindent 4 }}
+data:
+  sink.yaml: |
+    {{- include "sink.storeConfig" $c | nindent 4 }}
+{{- end }}
 {{- end }}

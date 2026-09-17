@@ -2,38 +2,101 @@
 
 ## Configuration and initial admission
 
-Chart 0.2 is a new cluster interface. Store map keys are stable Sink identities;
-changing a key creates a different Store. Each Store gets an Engine headless Service
-and Deployment, plus an optional Worker Deployment. Only `state: active` Stores
-appear in the generated Gateway configuration. With no active Stores, no Gateway
-is deployed. Engine and Worker Secrets are external and never created or deleted
-by this chart. Backends, records and Kafka topics are never deleted by the chart.
+Chart 0.3 uses a shared `stores.<name>.storage` object for each Engine/Worker
+pair. **Maintain only values, not a separate Sink config YAML.** The chart generates
+the complete configuration for every role. It requires Sink 0.16.0+. The previous complete configuration Secret interface
+has been removed. Store map keys remain stable Sink identities; changing a key
+creates a different Store. Only active Stores appear in the Gateway routes.
 
-Every external Secret must contain **complete** Sink YAML under `config.key`:
+The chart generates ordinary runtime YAML in ConfigMaps. It manages role, Store
+name, listener/metrics addresses, request and shutdown timeouts, and Kafka identity
+from values. `engineDefaults.runtime`, `workerDefaults.runtime`, and their per-Store
+overrides accept additional `service` and `grpc` tuning. `gateway.runtime` accepts
+additional Gateway tuning. Managed fields cannot be overridden there. Kafka
+brokers/topic/group/partitions and `replicationFactor` (default 3)/`minInSyncReplicas`
+(default 2) are shared with both roles; `kafka.runtime` accepts other supported
+topic/producer/consumer/dead_letter tuning. Validate tuning with the pinned Sink
+before deployment. KEDA uses the same broker/topic/group metadata.
 
-| Contract | Required value |
-| --- | --- |
-| `mode` | `engine` or `worker`, matching the workload |
-| `storage.name` | Exact Store map key |
-| `storage.driver` and backend configuration | Same durable backend for the matching Engine and Worker |
-| `grpc.address` (Engine) | `:8080` |
-| `health.address` | `:8081` |
-| `prometheus.enabled/address` | `metrics.enabled` and `:9090` |
-| `service.request.timeout` | No greater than chart `requestTimeoutSeconds` |
-| `shutdown_timeout` | Component `pod.shutdownTimeoutSeconds` |
-| Kafka brokers, source/DLQ topic, group and policy | Identical between Engine and Worker; scaler metadata must match |
+## Store credentials
 
-The chart cannot inspect or prove the contents of an external Secret. Run
-`sink config check --config FILE` in your secret delivery pipeline and verify this
-contract before deployment. Neither `env` nor `envFrom` injects YAML values: Sink
-has no environment substitution. Use `pod.configRevision` to roll Pods after
-updating an external Secret; mounted file refresh alone does not reload Sink.
-Versioned immutable Secrets plus a revision change make configuration rollback
-reviewable. Do not combine a Store's activation with its configuration update.
+Provision Secrets externally in the **release namespace**, using a secret manager,
+External Secrets, Sealed Secrets, or your normal Kubernetes delivery pipeline.
+The chart neither creates nor reads their values, nor deletes them on uninstall.
+References follow Kubernetes `secretKeyRef` naming: `{name, key}`. There is no
+cross-namespace reference or optional fallback. Only referenced keys are projected,
+read-only with mode 0440 and Pod group 65532. Workloads need no Kubernetes API token
+or Secret-reading RBAC. Gateway does not mount Store credentials.
 
-Gateway listeners, routes, DNS interval and request timeout are chart-managed.
-`gateway.runtime` accepts other supported Sink gateway/service/gRPC tuning. Check
-the resulting configuration with the pinned server before applying new tuning.
+```yaml
+stores:
+  orders:
+    state: staged
+    storage:
+      driver: mongodb
+      mongodb:
+        uriSecretRef: {name: orders-mongo-v1, key: uri}
+    worker:
+      enabled: false
+```
+
+The `uri` key holds the **complete MongoDB connection URI**, including percent-encoded
+credentials and required replicaSet/authSource/TLS options. Engine and Worker share
+this reference. The generated config contains only
+`uri_file: /etc/sink-secrets/mongodb-uri`. It does not interpolate a password into
+a URI or put Secret data into Helm values/history, ConfigMaps, environment
+variables, annotations, or command-line arguments.
+
+Search Stores use `storage.search.endpoints` plus either:
+
+- `username` (nonsecret) or `usernameSecretRef`, paired with `passwordSecretRef`;
+- `apiKeySecretRef` for API-key authentication;
+- neither for a deliberately unauthenticated development service.
+
+The authentication modes are mutually exclusive. See
+[search-values.yaml](../examples/search-values.yaml). Inline MongoDB URIs,
+passwords and API keys are rejected by the chart schema. Do not embed credentials
+in search endpoint URLs or other ordinary tuning values. Sink currently has no
+Kafka SASL/TLS credential fields; KEDA's `authenticationRef` authenticates the
+**scaler only** and does not configure Sink's Kafka clients.
+
+Secret file bytes are preserved exactly, including spaces, `$`, quotes, Unicode
+and newlines. Avoid accidental trailing newlines. Missing Secret/key prevents
+container startup; an empty, unreadable, oversized or invalid file makes Sink fail
+startup. `sink config check` needs the same mounted files and validates without
+backend connections, but successful validation does not prove authentication.
+Readiness and representative authenticated write/read/async checks are still needed.
+Do not put production credentials into local fixture files or debug logs.
+
+### Rotation and rollback
+
+1. Create a new backend credential while keeping the old one valid. Use two users
+   or the backend's overlapping-key mechanism; replacing the only valid password
+   immediately cannot provide uninterrupted rotation.
+2. Create a new preferably immutable Secret (for example `orders-mongo-v2`) with
+   that credential. Change `uriSecretRef.name` or the relevant search reference
+   in values. This changes **both Engine and Worker Pod templates** automatically.
+3. Upgrade normally with the documented surge/discovery/drain budgets. Verify all
+   desired Pods are available and **all old/terminating Engine and Worker Pods have
+   exited**; `helm --wait` or new Pod readiness alone is insufficient. Check actual
+   synchronous and asynchronous operations with the new credential.
+4. Only then revoke the old credential. Keep its Secret for as long as rollback
+   requires it; rollback also requires the backend credential to remain valid.
+
+Sink loads credentials only at startup. Projected-volume refresh does not reload
+connections. If updating a Secret in place, wait for propagation and explicitly
+change `stores.<name>.credentialRevision` to roll both roles; prefer versioned
+immutable names to avoid kubelet cache races and ambiguous rollback. A shared
+Secret used by several Stores requires rotating every consuming Store. A Worker
+at zero reads the selected Secret when KEDA next starts it; test that path before
+revocation if asynchronous delivery is required. A malformed replacement can
+leave a rollout stalled while old Pods remain healthy: keep the old credential
+valid, correct the reference or roll back, and never force-delete healthy Pods.
+
+Ordinary runtime ConfigMap changes automatically change the workload checksum.
+Do not combine a Store's activation with its configuration or credential change;
+stage and validate it first. The chart never deletes backend records or Kafka topics.
+
 Store capability readiness checks storage by default. `readiness: kafka` is useful
 for an async-only Store; `process` deliberately admits without dependency checks.
 A single dependency probe does not prove Mongo majority durability or search shard
@@ -104,7 +167,7 @@ well: Deployment availability does not mean all
 old Pods have exited. Helm hooks do not delete data, and there is no resource keep
 policy leaving orphaned Deployments behind.
 
-1. **Stage:** add a new Store with `state: staged` and create its complete config
+1. **Stage:** add a new Store with `state: staged` and provision its referenced credential
    Secrets. Engines/Workers start, but Gateway does not route to it. Wait for Engine
    available replicas and check the representative backend and Kafka operations
    directly through its headless Service. Unique topics and consumer groups prevent
@@ -131,11 +194,12 @@ policy leaving orphaned Deployments behind.
    routed Store cannot return to `staged`, which would bypass retirement draining.
 
 Disabling a Worker also requires retirement plus a removal approval after draining.
-Kafka broker/topic/group/partition metadata is immutable while a Store exists;
-lag thresholds can change. Topic partition changes can alter record affinity:
+Kafka broker/source/DLQ topic/group/partition metadata is immutable while a Store exists;
+lag thresholds and non-identity runtime tuning can change. Source and DLQ topics
+must not overlap across Stores. Topic partition changes can alter record affinity:
 perform a drained migration to a new topic/group, never just raise the scaler cap.
-Backend targets are private Secret content, so the chart cannot enforce their
-immutability. Do not switch a Store to a different backend in place.
+MongoDB targets are private Secret content; search targets are values. The chart
+cannot verify backend identity or enforce its immutability. Do not switch a Store to a different backend in place.
 
 The live guard uses Helm `lookup` of the inventory ConfigMap, Deployments and Pods;
 the Helm operator identity needs namespace read access to these objects. Workload
@@ -167,7 +231,7 @@ memory limit, leaving headroom for non-Go memory. It is a soft Go runtime target
 not an OOM guarantee. Do not override it through `env`; use `goMemoryLimitPercent`.
 
 Application queues, execution bytes, publish buffers, Kafka fetch sizes and gRPC
-message limits must fit the memory budget too. Set these in the complete runtime
+message limits must fit the memory budget too. Set these in the supported `runtime.service`/`runtime.grpc`
 configuration and qualify representative maximum documents/fanout. Increasing
 replicas cannot repair an overloaded database or Kafka partition. Budget peak
 resources as desired replicas **plus surge and terminating replicas**, multiplied
@@ -225,7 +289,7 @@ is available. This is why live availability checks matter beyond Helm rendering.
 
 ## References
 
-- [Sink rolling-upgrade contract](https://github.com/batchstream/sink/blob/v0.15.0/docs/rolling-upgrades.md)
+- [Sink rolling-upgrade contract](https://github.com/batchstream/sink/blob/v0.16.0/docs/rolling-upgrades.md)
 - [Kubernetes termination flow](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow)
 - [Native lifecycle hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)
 - [HPA behavior and replica ownership](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/)

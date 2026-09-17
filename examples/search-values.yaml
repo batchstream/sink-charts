@@ -1,0 +1,17 @@
+# Provision these Secrets in the release namespace; never put real passwords here.
+stores:
+  catalog:
+    state: active
+    storage:
+      driver: opensearch
+      search:
+        endpoints: [https://opensearch.example.invalid:9200]
+        usernameSecretRef: {name: catalog-auth-v1, key: username}
+        passwordSecretRef: {name: catalog-auth-v1, key: password}
+  events:
+    state: active
+    storage:
+      driver: elasticsearch
+      search:
+        endpoints: [https://elasticsearch.example.invalid:9200]
+        apiKeySecretRef: {name: events-auth-v1, key: api-key}

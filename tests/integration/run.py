@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from urllib.parse import quote
 
 import yaml
 
@@ -35,14 +36,25 @@ class Qualification:
             "gateway": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"memory": "512Mi"}}}},
             "engineDefaults": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"memory": "512Mi"}}}},
             "workerDefaults": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"cpu": "200m", "memory": "512Mi"}}}},
-            "stores": {"mongo": {"state": "active", "engine": {"config": {"existingSecret": "mongo-engine-config"}},
-                "worker": {"enabled": True, "replicaCount": 0, "allowScaleToZero": True, "config": {"existingSecret": "mongo-worker-config"}, "disruptionBudget": {"enabled": False}},
-                "kafka": {"brokers": ["kafka:9092"], "topic": "mongo-mutations", "consumerGroup": "mongo-workers", "partitions": 4, "lagThreshold": 100}}},
+            "stores": {"mongo": {"state": "active", "storage": self.storage("mongo-v1"), "engine": {},
+                "worker": {"enabled": True, "replicaCount": 0, "allowScaleToZero": True, "disruptionBudget": {"enabled": False}},
+                "kafka": {"brokers": ["kafka:9092"], "topic": "mongo-mutations", "consumerGroup": "mongo-workers", "partitions": 4, "lagThreshold": 100, "replicationFactor": 1, "minInSyncReplicas": 1}}},
         }
+        if args.sink_image:
+            self.values["image"] = {"repository": args.sink_image.rsplit(":", 1)[0], "tag": args.sink_image.rsplit(":", 1)[1], "digest": ""}
         self.events = []
         self.owned = False
         self.image_built = False
         self.traffic_active = False
+
+    @staticmethod
+    def storage(secret):
+        storage = {"driver": "mongodb", "mongodb": {"uriSecretRef": {"name": secret, "key": "uri"}}}
+        return storage
+
+    def mongo_admin(self, script):
+        return self.command(self.kubectl + ["exec", "deployment/mongo", "--", "mongosh", "--quiet",
+                            "--username", "fixture-admin", "--password", "fixture-admin", "--authenticationDatabase", "admin", "--eval", script])
 
     def command(self, args, **kwargs):
         result = subprocess.run(args, text=True, capture_output=True, timeout=1200, **kwargs)
@@ -150,7 +162,7 @@ class Qualification:
         self.log("owned CoreDNS positive cache enabled with 30-second TTL")
         # Reuse local public image cache without downloading or deleting shared images.
         cached = []
-        for image in ["ghcr.io/liran/sink:0.15.0", "mongo:8.2", "apache/kafka:4.2.1",
+        for image in [self.args.sink_image or "ghcr.io/batchstream/sink:0.16.0", "mongo:8.2", "apache/kafka:4.2.1",
                       "ghcr.io/kedacore/keda:2.20.0", "ghcr.io/kedacore/keda-metrics-apiserver:2.20.0",
                       "ghcr.io/kedacore/keda-admission-webhooks:2.20.0"]:
             inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
@@ -173,20 +185,17 @@ class Qualification:
         self.wait("isolated Mongo and Kafka ready", lambda: self.available("mongo") and self.available("kafka"))
         self.command(self.kubectl + ["exec", "deployment/mongo", "--", "mongosh", "--quiet", "--eval",
             'try { rs.status() } catch (e) { rs.initiate({_id:"rs0",members:[{_id:0,host:"mongo:27017"}]}) }'])
-        for store in ["mongo", "archive"]:
-            for role in ["engine", "worker"]:
-                config = {"mode": role, "health": {"address": ":8081"}, "shutdown_timeout": "30s", "service": {"request": {"timeout": "30s"}},
-                    "storage": {"name": store, "driver": "mongodb", "mongodb": {"uri": "mongodb://mongo:27017/?replicaSet=rs0"}}}
-                if role == "engine":
-                    config["grpc"] = {"address": ":8080"}
-                if store == "mongo":
-                    config["storage"]["kafka"] = {"enabled": True, "brokers": ["kafka:9092"],
-                        "topic": {"name": "mongo-mutations", "partitions": 4, "replication_factor": 1, "min_insync_replicas": 1},
-                        "consumer": {"group_id": "mongo-workers"}}
-                if role == "worker" and store == "archive":
-                    continue
-                secret = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": f"{store}-{role}-config"}, "stringData": {"sink.yaml": yaml.safe_dump(config)}}
-                self.apply([secret])
+        self.wait("Mongo primary elected", lambda: "true" in self.command(self.kubectl + ["exec", "deployment/mongo", "--", "mongosh", "--quiet", "--eval", "db.hello().isWritablePrimary"]))
+        self.command(self.kubectl + ["exec", "deployment/mongo", "--", "mongosh", "--quiet", "--eval",
+                     'db.getSiblingDB("admin").createUser({user:"fixture-admin",pwd:"fixture-admin",roles:["root"]})'])
+        # Public synthetic credentials only, with URI-reserved and Unicode characters.
+        for version in [1, 2]:
+            password = f'fixture-{version}:$@/"unicode-雪'
+            user = {"user": f"sink-v{version}", "pwd": password, "roles": ["readWriteAnyDatabase", "dbAdminAnyDatabase"]}
+            self.mongo_admin(f'db.getSiblingDB("admin").createUser({json.dumps(user)})')
+            uri = f"mongodb://sink-v{version}:{quote(password, safe='')}@mongo:27017/?replicaSet=rs0&authSource=admin"
+            secret = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": f"mongo-v{version}"}, "immutable": True, "stringData": {"uri": uri}}
+            self.apply([secret])
         self.upgrade()
         self.wait("initial Engine discovery converges", lambda: self.available("qual-sink-mongo-engine"))
 
@@ -197,9 +206,21 @@ class Qualification:
         time.sleep(10)
         self.log("rolling Gateway and Engine with default drain budgets")
         self.values["gateway"]["pod"]["configRevision"] = "roll-1"
-        self.values["stores"]["mongo"]["engine"]["pod"] = {"configRevision": "roll-1"}
+        # Keep a Worker active so both roles rotate under business traffic.
+        self.values["stores"]["mongo"]["worker"]["replicaCount"] = 1
+        self.upgrade()
+        self.values["stores"]["mongo"]["storage"] = self.storage("mongo-v2")
         self.upgrade()
         self.wait("rolling Pods fully terminate", self.no_terminating)
+        self.mongo_admin('db.getSiblingDB("admin").dropUser("sink-v1")')
+        self.probe("rotation-publish", ["-mode", "publish", "-dataset", "rotation", "-count", "100"])
+        self.probe_result("rotation-publish")
+        self.probe("rotation-verify", ["-mode", "verify", "-dataset", "rotation", "-count", "100"])
+        self.probe_result("rotation-verify")
+        self.log("both roles use the new Secret after old credential revocation; async records verified")
+        self.values["stores"]["mongo"]["worker"]["replicaCount"] = 0
+        self.upgrade()
+        self.wait("rotation Worker drains", self.no_terminating)
         self.log("Engine scale 2 -> 3 -> 2 under traffic")
         self.values["stores"]["mongo"]["engine"]["replicaCount"] = 3
         self.upgrade()
@@ -208,9 +229,20 @@ class Qualification:
         self.upgrade()
         self.wait("scaled-down Engine fully terminates", self.no_terminating)
         invalid = copy.deepcopy(self.values)
-        invalid["stores"]["archive"] = {"state": "active"}
+        invalid["stores"]["archive"] = {"state": "active", "storage": self.storage("mongo-v2")}
         self.upgrade(invalid, "must first be staged")
-        self.values["stores"]["archive"] = {"state": "staged", "engine": {"config": {"existingSecret": "archive-engine-config"}}}
+        self.values["stores"]["archive"] = {"state": "staged", "storage": self.storage("mongo-v2"), "engine": {}}
+        for reference, expected in [({"name": "absent-secret", "key": "uri"}, 'secret "absent-secret" not found'),
+                                    ({"name": "mongo-v2", "key": "absent-key"}, 'non-existent secret key: absent-key')]:
+            self.values["stores"]["archive"]["storage"]["mongodb"]["uriSecretRef"] = reference
+            self.upgrade(wait=False)
+            self.wait("missing Secret/key blocks staged Engine startup", lambda: any(
+                expected in event.get("message", "") and event.get("involvedObject", {}).get("name", "").startswith("qual-sink-archive-engine-")
+                for event in self.get("events")["items"]), timeout=120)
+            invalid = copy.deepcopy(self.values)
+            invalid["stores"]["archive"]["state"] = "active"
+            self.upgrade(invalid, "Engine is not fully available")
+        self.values["stores"]["archive"]["storage"] = self.storage("mongo-v2")
         self.upgrade()
         invalid = copy.deepcopy(self.values)
         invalid["stores"]["archive"]["state"] = "active"
@@ -319,6 +351,7 @@ class Qualification:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sink-image", help="explicit local candidate repository:tag; loaded into the owned cluster")
     parser.add_argument("--scenario", choices=["all", "scaling"], default="all", help="run the full matrix or only the Kafka/KEDA regression")
     parser.add_argument("--cluster", help="owned sink-chart-* name; defaults to a unique name")
     parser.add_argument("--kubeconfig", help="explicit owned Kind kubeconfig for development reuse; cluster is still deleted")

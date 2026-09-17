@@ -1,38 +1,66 @@
-# Create a fresh Sink 0.15 cluster. Store names and Kafka identities are durable.
+# Store credentials are externally managed Secrets in the release namespace.
 gateway:
-  autoscaling: {mode: hpa, minReplicas: 2, maxReplicas: 6}
+  autoscaling:
+    mode: hpa
+    minReplicas: 2
+    maxReplicas: 6
 stores:
   mongo:
     state: active
     engine:
-      config: {existingSecret: sink-mongo-engine-config}
       pod:
-        configRevision: "v1"
         resources:
-          requests: {cpu: "1", memory: 1Gi}
-          limits: {memory: 2Gi}
-      autoscaling: {mode: hpa, minReplicas: 2, maxReplicas: 8}
+          requests:
+            cpu: '1'
+            memory: 1Gi
+          limits:
+            memory: 2Gi
+      autoscaling:
+        mode: hpa
+        minReplicas: 2
+        maxReplicas: 8
     worker:
       enabled: true
-      config: {existingSecret: sink-mongo-worker-config}
       pod:
-        configRevision: "v1"
         resources:
-          requests: {cpu: 500m, memory: 512Mi}
-          limits: {memory: 1Gi}
-      autoscaling: {mode: hpa, minReplicas: 2, maxReplicas: 4}
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
+      autoscaling:
+        mode: hpa
+        minReplicas: 2
+        maxReplicas: 4
     kafka:
-      brokers: [kafka.example.invalid:9092]
+      brokers:
+      - kafka.example.invalid:9092
       topic: mongo-mutations-v1
       consumerGroup: mongo-workers-v1
       partitions: 8
       lagThreshold: 1000
+    # Same credential projection and backend settings for both roles.
+    storage:
+      driver: mongodb
+      mongodb:
+        uriSecretRef:
+          name: sink-mongo-v1
+          key: uri
   archive:
-    # Create and verify this Store before a separate upgrade makes it active.
+    # Activate in a separate upgrade after backend checks and Engine availability.
     state: staged
     engine:
-      config: {existingSecret: sink-archive-engine-config}
       pod:
         resources:
-          requests: {cpu: 250m, memory: 512Mi}
-          limits: {memory: 1Gi}
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
+    # Same credential projection and backend settings for both roles.
+    storage:
+      driver: mongodb
+      mongodb:
+        uriSecretRef:
+          name: sink-archive-v1
+          key: uri
