@@ -16,6 +16,7 @@ def main():
                    if doc and doc["kind"] == "ConfigMap" and "sink.yaml" in doc.get("data", {}))
     with tempfile.TemporaryDirectory(prefix="sink-chart-config-") as directory:
         config_dir = Path(directory)
+        config_dir.chmod(0o755) # Public fixtures must be readable by distroless UID 65532.
         (config_dir / "gateway.yaml").write_text(gateway["data"]["sink.yaml"])
         for role in ["engine", "worker"]:
             (config_dir / f"{role}.yaml").write_text((ROOT / f"examples/{role}-config.yaml").read_text())

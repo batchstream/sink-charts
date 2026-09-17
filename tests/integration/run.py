@@ -39,9 +39,12 @@ class Qualification:
                 "kafka": {"brokers": ["kafka:9092"], "topic": "mongo-mutations", "consumerGroup": "mongo-workers", "partitions": 4, "lagThreshold": 100}}},
         }
         self.events = []
+        self.owned = False
+        self.image_built = False
+        self.traffic_active = False
 
     def command(self, args, **kwargs):
-        result = subprocess.run(args, text=True, capture_output=True, **kwargs)
+        result = subprocess.run(args, text=True, capture_output=True, timeout=1200, **kwargs)
         if result.returncode:
             raise RuntimeError(f"{' '.join(args)}\n{result.stdout}\n{result.stderr}")
         return result.stdout
@@ -61,6 +64,8 @@ class Qualification:
         self.log(description)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if self.traffic_active and self.get("pod", "traffic")["status"].get("phase") == "Failed":
+                raise RuntimeError(self.command(self.kubectl + ["logs", "traffic"]))
             if predicate():
                 return
             time.sleep(3)
@@ -110,15 +115,29 @@ class Qualification:
         return result
 
     def setup(self):
+        clusters = self.command(["kind", "get", "clusters"]).splitlines()
         if self.args.kubeconfig:
             # Reuse is only for an explicitly created disposable cluster during development.
-            clusters = self.command(["kind", "get", "clusters"]).splitlines()
             if self.cluster not in clusters:
                 raise RuntimeError("requested owned Kind cluster does not exist")
+            self.owned = True
         else:
+            if self.cluster in clusters:
+                raise RuntimeError("cluster already exists; refusing to adopt or delete it")
+            self.owned = True
             self.command(["kind", "create", "cluster", "--name", self.cluster, "--image", NODE,
                           "--kubeconfig", self.kubeconfig, "--wait", "120s"])
         self.log("owned Kind cluster ready")
+        # Reuse local public image cache without downloading or deleting shared images.
+        cached = []
+        for image in ["ghcr.io/liran/sink:0.15.0", "mongo:8.2", "apache/kafka:4.2.1",
+                      "ghcr.io/kedacore/keda:2.20.0", "ghcr.io/kedacore/keda-metrics-apiserver:2.20.0",
+                      "ghcr.io/kedacore/keda-admission-webhooks:2.20.0"]:
+            inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
+            if inspect.returncode == 0:
+                cached.append(image)
+        if cached:
+            self.command(["kind", "load", "docker-image", *cached, "--name", self.cluster])
         namespace = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": self.namespace}}
         self.apply([namespace])
         architecture = self.command(["docker", "info", "--format", "{{.Architecture}}"]).strip()
@@ -127,6 +146,7 @@ class Qualification:
         self.command(["go", "build", "-trimpath", "-o", str(self.directory / "probe"), "."], cwd=ROOT / "tests/integration/probe", env=environment)
         (self.directory / "Dockerfile").write_text("FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab\nCOPY probe /probe\nENTRYPOINT [\"/probe\"]\n")
         self.command(["docker", "build", "-t", self.image, str(self.directory)])
+        self.image_built = True
         self.command(["kind", "load", "docker-image", self.image, "--name", self.cluster])
         self.command(self.helm + ["upgrade", "--install", "keda", "keda", "--repo", "https://kedacore.github.io/charts", "--version", "2.20.0", "-n", self.namespace, "--wait", "--timeout", "10m"])
         self.command(self.kubectl + ["apply", "-f", str(ROOT / "tests/integration/backends.yaml")])
@@ -152,6 +172,7 @@ class Qualification:
 
     def exercise(self):
         self.probe("traffic", ["-dataset", "rollout"])
+        self.traffic_active = True
         self.wait("persistent business client starts", lambda: self.get("pod", "traffic")["status"].get("phase") == "Running")
         time.sleep(10)
         self.log("rolling Gateway and Engine with default drain budgets")
@@ -221,6 +242,8 @@ class Qualification:
         self.log("scale-from-zero reactivation verified")
 
     def diagnostics(self):
+        if not self.owned:
+            return
         for kind in ["pods", "deployments", "events", "scaledobjects", "hpa", "endpointslices"]:
             try:
                 (self.report_dir / f"{kind}.json").write_text(json.dumps(self.get(kind), indent=2))
@@ -230,14 +253,20 @@ class Qualification:
             pods = self.get("pods")["items"]
             for pod in pods:
                 name = pod["metadata"]["name"]
-                logs = self.command(self.kubectl + ["logs", name, "--all-containers", "--tail", "200"])
-                (self.report_dir / f"{name}.log").write_text(logs)
+                try:
+                    logs = self.command(self.kubectl + ["logs", name, "--all-containers", "--tail", "200"])
+                    (self.report_dir / f"{name}.log").write_text(logs)
+                except Exception as error:
+                    self.log(f"log collection for {name}: {error}")
         except Exception as error:
             self.log(f"log collection: {error}")
 
     def cleanup(self):
+        if not self.owned:
+            return
         self.command(["kind", "delete", "cluster", "--name", self.cluster])
-        subprocess.run(["docker", "image", "rm", self.image], capture_output=True, check=False)
+        if self.image_built:
+            subprocess.run(["docker", "image", "rm", self.image], capture_output=True, check=False)
         self.log("owned cluster, namespace, controllers and probe image removed")
 
 
