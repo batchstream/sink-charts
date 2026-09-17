@@ -81,7 +81,9 @@ count can temporarily exceed desired replicas plus one while old Pods drain.
 
 Measure your CoreDNS and NodeLocal DNS positive/negative TTLs, EndpointSlice
 publication, gRPC clients' re-resolution/backoff, proxies and load balancer target
-deregistration. `dnsRefreshSeconds` does not flush upstream caches. SERVFAIL,
+deregistration. Direct Engine clients need their own discovery/connection budgets;
+the Engine calculation above models Gateway callers. `dnsRefreshSeconds` does not
+flush upstream caches. SERVFAIL,
 stale answers or a partition can exceed any finite drain window. Abrupt node loss,
 OOM/SIGKILL, forced deletion, backend quorum loss or clients with shorter deadlines
 can still fail requests. Use deadlines and operation identifiers to reconcile
