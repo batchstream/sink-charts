@@ -238,9 +238,11 @@ class Qualification:
         self.upgrade()
         self.wait("third Engine becomes discoverable before scale-down", lambda: self.available("qual-sink-mongo-engine"))
         self.values["stores"]["mongo"]["engine"]["replicaCount"] = 1
+        self.values["stores"]["mongo"]["engine"]["disruptionBudget"] = {"maxUnavailable": 0}
         self.upgrade()
         self.wait("single Engine remains after scale-down", self.no_terminating)
         self.values["stores"]["mongo"]["engine"]["replicaCount"] = 2
+        self.values["stores"]["mongo"]["engine"]["disruptionBudget"] = {"maxUnavailable": 1}
         self.upgrade()
         self.wait("second Engine becomes discoverable", lambda: self.available("qual-sink-mongo-engine"))
         invalid = copy.deepcopy(self.values)
