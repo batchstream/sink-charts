@@ -4,5 +4,6 @@ Store lifecycle: staged -> active -> retiring -> remove.
 Create the external Engine/Worker configuration Secrets before enabling workloads.
 Use --wait --timeout 15m for upgrades; then wait for terminating Gateway Pods too.
 Helm template/GitOps, rollback, uninstall and direct Kubernetes edits do not enforce
-live lifecycle checks. Follow the operational runbook in docs/operations.md.
+live lifecycle checks. Follow the operational runbook:
+https://github.com/batchstream/sink-charts/blob/v{{ .Chart.Version }}/docs/operations.md
 DNS and whole-process shutdown budgets must be measured in your cluster.
