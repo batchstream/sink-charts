@@ -80,7 +80,10 @@ Do not put production credentials into local fixture files or debug logs.
 
 1. Create a new backend credential while keeping the old one valid. Use two users
    or the backend's overlapping-key mechanism; replacing the only valid password
-   immediately cannot provide uninterrupted rotation.
+   immediately cannot provide uninterrupted rotation. Verify the replacement can
+   authenticate and has the required read/write/index-management permissions before
+   changing the reference. A valid file or successful Ping is not a write-permission
+   check; Pod readiness does not gate Kafka consumption inside an already running Worker.
 2. Create a new preferably immutable Secret (for example `orders-mongo-v2`) with
    that credential. Change `uriSecretRef.name` or the relevant search reference
    in values. This changes **both Engine and Worker Pod templates** automatically.
