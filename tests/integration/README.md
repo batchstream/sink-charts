@@ -10,7 +10,8 @@ make integration PYTHON=.venv/bin/python
 The runner creates a unique `sink-chart-*` Kind cluster with Kubernetes 1.35.8,
 uses its own temporary kubeconfig/context, builds a small SDK 0.8.0 business probe,
 and puts the test release, Mongo, Kafka and KEDA 2.20 in `sink-chart-test` inside that
-owned cluster. KEDA CRDs are installed only there. No current/default Kubernetes
+owned cluster. Its CoreDNS TTL is set to 30 seconds to exercise the chart
+cache budget; KEDA CRDs are installed only there. No current/default Kubernetes
 context is used. The cluster and probe image are deleted in `finally`, including
 on test failures. Logs and JSON reconciliation evidence remain in `.reports/`.
 Interrupting the entire host/process can bypass cleanup; use `kind get clusters`

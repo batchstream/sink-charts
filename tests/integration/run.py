@@ -4,6 +4,7 @@ import argparse
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -132,6 +133,16 @@ class Qualification:
             self.command(["kind", "create", "cluster", "--name", self.cluster, "--image", NODE,
                           "--kubeconfig", self.kubeconfig, "--wait", "120s"])
         self.log("owned Kind cluster ready")
+        dns_kubectl = self.kubectl[:-2] + ["-n", "kube-system"]
+        dns_config = json.loads(self.command(dns_kubectl + ["get", "configmap", "coredns", "-o", "json"]))
+        corefile, replacements = re.subn(r"(?m)^(\s*)ttl\s+\d+$", r"\g<1>ttl 30", dns_config["data"]["Corefile"])
+        if replacements != 1:
+            raise RuntimeError("unexpected Kind CoreDNS fixture; cannot enforce the tested 30s TTL")
+        patch = [{"op": "replace", "path": "/data/Corefile", "value": corefile}]
+        self.command(dns_kubectl + ["patch", "configmap", "coredns", "--type=json", "-p", json.dumps(patch)])
+        self.command(dns_kubectl + ["rollout", "restart", "deployment/coredns"])
+        self.command(dns_kubectl + ["rollout", "status", "deployment/coredns", "--timeout=120s"])
+        self.log("owned CoreDNS positive TTL set to 30 seconds")
         # Reuse local public image cache without downloading or deleting shared images.
         cached = []
         for image in ["ghcr.io/liran/sink:0.15.0", "mongo:8.2", "apache/kafka:4.2.1",
