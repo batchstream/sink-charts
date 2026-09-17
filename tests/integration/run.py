@@ -336,8 +336,10 @@ def main():
                 qualification.exercise()
             qualification.log("PASS")
         finally:
-            qualification.diagnostics()
-            qualification.cleanup()
+            try:
+                qualification.diagnostics()
+            finally:
+                qualification.cleanup()
 
 
 if __name__ == "__main__":
