@@ -138,11 +138,14 @@ class Qualification:
         corefile, replacements = re.subn(r"(?m)^(\s*)ttl\s+\d+$", r"\g<1>ttl 30", dns_config["data"]["Corefile"])
         if replacements != 1:
             raise RuntimeError("unexpected Kind CoreDNS fixture; cannot enforce the tested 30s TTL")
+        # Modern kubeadm disables positive caching for cluster.local by default.
+        # Enable it here so TTL=30 actually retains old Engine answers during withdrawal.
+        corefile = re.sub(r"(?m)^\s*disable success cluster\.local\s*$", "", corefile)
         patch = [{"op": "replace", "path": "/data/Corefile", "value": corefile}]
         self.command(dns_kubectl + ["patch", "configmap", "coredns", "--type=json", "-p", json.dumps(patch)])
         self.command(dns_kubectl + ["rollout", "restart", "deployment/coredns"])
         self.command(dns_kubectl + ["rollout", "status", "deployment/coredns", "--timeout=120s"])
-        self.log("owned CoreDNS positive TTL set to 30 seconds")
+        self.log("owned CoreDNS positive cache enabled with 30-second TTL")
         # Reuse local public image cache without downloading or deleting shared images.
         cached = []
         for image in ["ghcr.io/liran/sink:0.15.0", "mongo:8.2", "apache/kafka:4.2.1",
