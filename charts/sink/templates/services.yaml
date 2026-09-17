@@ -1,0 +1,87 @@
+{{- range $component := include "sink.components" . | fromJsonArray }}
+{{- $c := merge (dict "root" $) $component }}
+{{- $s := $c.settings }}
+{{- $name := include "sink.componentName" $c }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels: {{ include "sink.labels" $c | nindent 4 }}
+  {{- with $s.pod.serviceAccountAnnotations }}
+  annotations: {{ toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+{{- if ne $c.role "worker" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{ include "sink.labels" $c | nindent 4 }}
+  {{- if eq $c.role "gateway" }}
+  {{- with $s.service.annotations }}
+  annotations: {{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+spec:
+  {{- if eq $c.role "engine" }}
+  clusterIP: None
+  publishNotReadyAddresses: false
+  {{- else }}
+  type: {{ $s.service.type }}
+  {{- end }}
+  selector: {{ include "sink.selector" $c | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ if eq $c.role "gateway" }}{{ $s.service.port }}{{ else }}8080{{ end }}
+      targetPort: grpc
+      appProtocol: kubernetes.io/h2c
+{{- end }}
+{{- if $s.disruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  labels: {{ include "sink.labels" $c | nindent 4 }}
+spec:
+  maxUnavailable: {{ $s.disruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels: {{ include "sink.selector" $c | nindent 6 }}
+{{- end }}
+{{- if $.Values.metrics.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sink.name" (dict "raw" (printf "%s-metrics" $name)) }}
+  labels:
+    {{- include "sink.labels" $c | nindent 4 }}
+    sink.batchstream.io/metrics: "true"
+spec:
+  type: ClusterIP
+  selector: {{ include "sink.selector" $c | nindent 4 }}
+  ports:
+    - {name: metrics, port: 9090, targetPort: metrics}
+{{- end }}
+{{- end }}
+{{- if .Values.metrics.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "sink.name" (dict "raw" (include "sink.base" .)) }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    {{- with .Values.metrics.serviceMonitor.labels }}{{ toYaml . | nindent 4 }}{{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      sink.batchstream.io/metrics: "true"
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}

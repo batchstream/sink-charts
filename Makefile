@@ -2,13 +2,10 @@ HELM ?= helm
 PYTHON ?= python3
 CHART := charts/sink
 
-.PHONY: lint test package check
-
+.PHONY: lint test package check integration
 lint:
 	$(HELM) lint $(CHART) --strict
-	@for role in engine gateway worker; do \
-		$(HELM) lint $(CHART) --strict -f examples/$$role-values.yaml || exit 1; \
-	done
+	$(HELM) lint $(CHART) --strict -f examples/cluster-values.yaml
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
@@ -17,3 +14,7 @@ package:
 	$(HELM) package $(CHART) --destination dist
 
 check: lint test package
+
+# Explicit opt-in: creates and destroys its own local Kind cluster.
+integration:
+	$(PYTHON) tests/integration/run.py

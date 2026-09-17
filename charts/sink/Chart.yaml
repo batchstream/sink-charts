@@ -1,17 +1,12 @@
 apiVersion: v2
 name: sink
-description: Deploy a Sink Gateway, Engine, or Worker with independently managed configuration.
+description: Store-isolated Sink clusters with bounded rollouts and independent autoscaling.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.15.0"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/batchstream/sink
 sources:
   - https://github.com/batchstream/sink
   - https://github.com/batchstream/sink-charts
-keywords:
-  - sink
-  - grpc
-  - mongodb
-  - elasticsearch
-  - opensearch
+keywords: [sink, grpc, kafka, mongodb, elasticsearch, opensearch]

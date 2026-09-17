@@ -1,0 +1,81 @@
+{{- range $component := include "sink.components" . | fromJsonArray }}
+{{- $c := merge (dict "root" $) $component }}
+{{- $a := $c.settings.autoscaling }}
+{{- $name := include "sink.componentName" $c }}
+{{- if eq $a.mode "hpa" }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  labels: {{ include "sink.labels" $c | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ $name }}}
+  minReplicas: {{ $a.minReplicas }}
+  maxReplicas: {{ $a.maxReplicas }}
+  behavior: {{ include "sink.behavior" $a | nindent 4 }}
+  metrics:
+    {{- if gt (int $a.cpuUtilization) 0 }}
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $a.cpuUtilization }}}
+    {{- end }}
+    {{- if gt (int $a.memoryUtilization) 0 }}
+    - type: Resource
+      resource:
+        name: memory
+        target: {type: Utilization, averageUtilization: {{ $a.memoryUtilization }}}
+    {{- end }}
+    {{- with $a.extraMetrics }}{{ toYaml . | nindent 4 }}{{- end }}
+{{- else if eq $a.mode "keda" }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $name }}
+  labels: {{ include "sink.labels" $c | nindent 4 }}
+spec:
+  scaleTargetRef: {name: {{ $name }}}
+  minReplicaCount: {{ $a.minReplicas }}
+  maxReplicaCount: {{ $a.maxReplicas }}
+  {{- $cached := false }}
+  {{- range $trigger := $a.keda.triggers }}{{- if $trigger.useCachedMetrics }}{{- $cached = true }}{{- end }}{{- end }}
+  {{- if or (eq (int $a.minReplicas) 0) $cached }}
+  pollingInterval: {{ $a.keda.pollingInterval }}
+  {{- end }}
+  {{- if eq (int $a.minReplicas) 0 }}
+  cooldownPeriod: {{ $a.keda.cooldownPeriod }}
+  {{- end }}
+  {{- with $a.keda.fallback }}
+  fallback: {{ toYaml . | nindent 4 }}
+  {{- end }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior: {{ include "sink.behavior" $a | nindent 8 }}
+  triggers:
+    {{- if eq $c.role "worker" }}
+    - type: kafka
+      metricType: AverageValue
+      metadata:
+        bootstrapServers: {{ join "," $c.kafka.brokers | quote }}
+        consumerGroup: {{ $c.kafka.consumerGroup | quote }}
+        topic: {{ $c.kafka.topic | quote }}
+        lagThreshold: {{ default 1000 $c.kafka.lagThreshold | quote }}
+        activationLagThreshold: "0"
+        offsetResetPolicy: earliest
+        allowIdleConsumers: "false"
+        scaleToZeroOnInvalidOffset: "false"
+        excludePersistentLag: "false"
+      {{- with $a.keda.authenticationRef }}
+      authenticationRef: {{ toYaml . | nindent 8 }}
+      {{- end }}
+    {{- else if eq (len $a.keda.triggers) 0 }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ $a.cpuUtilization | quote }}
+    {{- end }}
+    {{- with $a.keda.triggers }}{{ toYaml . | nindent 4 }}{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,24 @@
+# Overlay examples/cluster-values.yaml. Install KEDA separately first.
+stores:
+  mongo:
+    worker:
+      allowScaleToZero: true
+      disruptionBudget: {enabled: false}
+      autoscaling:
+        mode: keda
+        minReplicas: 0
+        maxReplicas: 8 # Cannot exceed kafka.partitions.
+        keda:
+          pollingInterval: 15
+          cooldownPeriod: 300
+          # Kafka lag trigger is generated. Optional authentication reference:
+          # authenticationRef: {name: kafka-scaler-auth}
+          fallback: {failureThreshold: 3, replicas: 2}
+          # Additional triggers can keep Workers running during known busy hours.
+          triggers:
+            - type: cron
+              metadata:
+                timezone: UTC
+                start: "0 8 * * 1-5"
+                end: "0 18 * * 1-5"
+                desiredReplicas: "2"

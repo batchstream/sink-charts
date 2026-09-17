@@ -7,3 +7,5 @@ dist/
 .env.*
 values.local.yaml
 *.local.yaml
+
+.reports/
