@@ -1,0 +1,6 @@
+mode: gateway
+fullnameOverride: sink-gateway
+config:
+  existingSecret: sink-gateway-config
+preStopDelaySeconds: 15
+terminationGracePeriodSeconds: 90

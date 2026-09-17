@@ -1,0 +1,96 @@
+# mode selects Kubernetes networking; the mounted configuration must use the same mode.
+mode: engine
+replicaCount: 2
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Sink 0.15.0 was published here before the GitHub organization migration.
+  repository: ghcr.io/liran/sink
+  tag: "" # Defaults to Chart.appVersion.
+  digest: "" # Optional sha256 digest; takes precedence over tag.
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+config:
+  # Defaults to <release fullname>-config. Create the Secret separately.
+  existingSecret: ""
+  key: sink.yaml
+
+service:
+  # Engines always use a headless ClusterIP Service for Gateway discovery.
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ports:
+  grpc: 8080
+  health: 8081
+  metrics: 9090
+metrics:
+  # Also enable prometheus in the mounted Sink configuration.
+  enabled: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+env:
+  - name: GOMEMLIMIT
+    value: 1536MiB
+  - name: GOGC
+    value: "100"
+envFrom: []
+
+minReadySeconds: 5
+revisionHistoryLimit: 3
+terminationGracePeriodSeconds: 180
+# Illustrative Engine discovery withdrawal budget; measure for your cluster.
+preStopDelaySeconds: 110
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+startupProbe:
+  httpGet:
+    path: /livez
+    port: health
+  periodSeconds: 2
+  failureThreshold: 60
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: health
+  periodSeconds: 2
+  timeoutSeconds: 2
+livenessProbe:
+  httpGet:
+    path: /livez
+    port: health
+  periodSeconds: 10
+  timeoutSeconds: 2
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

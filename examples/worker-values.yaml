@@ -1,0 +1,6 @@
+mode: worker
+fullnameOverride: sink-primary-worker
+config:
+  existingSecret: sink-primary-worker-config
+preStopDelaySeconds: 0
+terminationGracePeriodSeconds: 90

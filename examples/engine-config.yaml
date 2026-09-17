@@ -1,0 +1,12 @@
+# Example only: replace the backend address before creating a Secret.
+mode: engine
+grpc:
+  address: ":8080"
+health:
+  address: ":8081"
+storage:
+  name: primary
+  driver: mongodb
+  mongodb:
+    uri: mongodb://mongodb.example.invalid:27017/?replicaSet=rs0
+shutdown_timeout: 15s

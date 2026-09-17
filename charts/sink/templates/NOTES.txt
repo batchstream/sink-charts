@@ -1,0 +1,12 @@
+Sink {{ .Values.mode }} is deployed as {{ include "sink.fullname" . }}.
+
+Configuration Secret: {{ include "sink.configSecretName" . }}
+Configuration key: {{ .Values.config.key }}
+The configuration must set mode: {{ .Values.mode }} and matching listener ports.
+After changing that Secret, restart the Deployment:
+  kubectl rollout restart deployment/{{ include "sink.fullname" . }} -n {{ .Release.Namespace }}
+{{ if eq .Values.mode "engine" }}
+Gateway route target:
+  dns:///{{ include "sink.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+Adjust the DNS suffix if the cluster uses a domain other than cluster.local.
+{{ end }}

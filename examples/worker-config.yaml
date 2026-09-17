@@ -1,0 +1,20 @@
+# Example only: use the same backend and Kafka policy on the matching Engine.
+mode: worker
+health:
+  address: ":8081"
+storage:
+  name: primary
+  driver: mongodb
+  mongodb:
+    uri: mongodb://mongodb.example.invalid:27017/?replicaSet=rs0
+  kafka:
+    enabled: true
+    brokers: [kafka.example.invalid:9092]
+    topic:
+      name: primary-mutations
+      partitions: 4
+      replication_factor: 2
+      min_insync_replicas: 2
+    consumer:
+      group_id: primary-workers
+shutdown_timeout: 15s
