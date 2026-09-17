@@ -209,6 +209,18 @@ class Qualification:
         # Keep a Worker active so both roles rotate under business traffic.
         self.values["stores"]["mongo"]["worker"]["replicaCount"] = 1
         self.upgrade()
+        invalid = copy.deepcopy(self.values)
+        invalid["stores"]["mongo"]["storage"]["mongodb"]["uriSecretRef"]["key"] = "absent-rotation-key"
+        self.upgrade(invalid, wait=False)
+        self.wait("invalid rotation reference stalls new Pods while old traffic continues", lambda: any(
+            "non-existent secret key: absent-rotation-key" in event.get("message", "")
+            and event.get("involvedObject", {}).get("name", "").startswith("qual-sink-mongo-engine-")
+            for event in self.get("events")["items"]), timeout=120)
+        for role, minimum in [("engine", 2), ("worker", 1)]:
+            ready = self.get("deployment", f"qual-sink-mongo-{role}")["status"].get("readyReplicas", 0)
+            if ready < minimum:
+                raise RuntimeError(f"invalid credential rollout removed healthy {role} capacity")
+        self.log("bad rotation key preserved prior Engine and Worker capacity")
         self.values["stores"]["mongo"]["storage"] = self.storage("mongo-v2")
         self.upgrade()
         self.wait("rolling Pods fully terminate", self.no_terminating)

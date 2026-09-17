@@ -22,6 +22,7 @@ Coverage:
 - Authenticated MongoDB with synthetic URI-reserved/Unicode credentials projected from Secrets.
 - Both roles rotate to a new immutable Secret under traffic; revoke the old backend
   user after termination, then verify synchronous and asynchronous operations.
+- A missing key during rotation leaves existing Engine/Worker capacity intact under traffic.
 - Missing Secret and missing key block staged Engine startup and activation.
 
 - Default DNS/termination budgets during simultaneous Gateway/Engine rolling updates.
