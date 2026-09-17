@@ -35,16 +35,37 @@ jobs:
       - name: Validate Kubernetes resource schemas
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
-          for role in engine gateway worker; do
-            helm template sink ./charts/sink --kube-version 1.30.0 \
-              -f "examples/$role-values.yaml" --set metrics.enabled=true \
-              | kubeconform -strict -summary -kubernetes-version 1.30.0
-          done
-      - name: Check example configurations against the released Sink image
+          helm template sink ./charts/sink --kube-version 1.30.0 \
+            -f examples/cluster-values.yaml --set metrics.enabled=true \
+            | kubeconform -strict -summary -kubernetes-version 1.30.0
+      - name: Check complete configurations with released Sink
+        run: python tests/check_runtime.py
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v3.17.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.0'
+          cache: false
+      - name: Install qualification tools
         run: |
-          for role in engine gateway worker; do
-            docker run --rm --network none \
-              -v "$PWD/examples:/examples:ro" \
-              ghcr.io/liran/sink:0.15.0@sha256:b240d56f3df686e9e42d863deb7ac7f52bddf321397b43ba919f665ddfbf21a7 \
-              config check --config "/examples/$role-config.yaml"
-          done
+          python -m pip install -r requirements-dev.txt
+          go install sigs.k8s.io/kind@v0.33.0
+      - name: Qualify rollouts, Store lifecycle and KEDA with business traffic
+        run: make integration
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kubernetes-qualification
+          path: .reports/
+          include-hidden-files: true
