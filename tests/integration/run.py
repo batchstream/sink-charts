@@ -270,8 +270,7 @@ class Qualification:
         self.wait("KEDA scales backlog to multiple consumers", lambda: self.get("deployment", "qual-sink-mongo-worker")["spec"]["replicas"] >= 2, timeout=180)
         self.command(self.kubectl + ["label", "node", f"{self.cluster}-control-plane", "sink-test-workers=ready"])
         self.wait("multiple Worker Pods become ready", lambda: self.get("deployment", "qual-sink-mongo-worker").get("status", {}).get("readyReplicas", 0) >= 2, timeout=180)
-        members = self.command(self.kubectl + ["exec", "deployment/kafka", "--", "/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "kafka:9092", "--describe", "--group", "mongo-workers", "--members", "--verbose"])
-        (self.report_dir / "consumer-members.txt").write_text(members)
+        self.wait("multiple Kafka consumers receive partitions", self.consumers_assigned, timeout=90)
         self.probe("verify", ["-mode", "verify", "-dataset", "async", "-count", str(published["acknowledged"])])
         verified = self.probe_result("verify")
         self.wait("KEDA returns Workers to zero after lag drains", lambda: self.get("deployment", "qual-sink-mongo-worker")["spec"]["replicas"] == 0, timeout=600)
@@ -282,6 +281,12 @@ class Qualification:
         self.probe("verify-again", ["-mode", "verify", "-dataset", "async-again", "-count", "100"])
         self.probe_result("verify-again")
         self.log("scale-from-zero reactivation verified")
+
+    def consumers_assigned(self):
+        members = self.command(self.kubectl + ["exec", "deployment/kafka", "--", "/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "kafka:9092", "--describe", "--group", "mongo-workers", "--members", "--verbose"])
+        (self.report_dir / "consumer-members.txt").write_text(members)
+        rows = [line.split() for line in members.splitlines()]
+        return sum(1 for row in rows if len(row) >= 5 and row[0] == "mongo-workers" and row[4].isdigit() and int(row[4]) > 0) >= 2
 
     def diagnostics(self):
         if not self.owned:
