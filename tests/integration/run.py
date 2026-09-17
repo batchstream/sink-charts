@@ -219,6 +219,11 @@ class Qualification:
         if not self.available("qual-sink-archive-engine"):
             self.upgrade(invalid, "Engine is not fully available")
         self.wait("staged Engine passes the discovery availability window", lambda: self.available("qual-sink-archive-engine"))
+        self.command(self.kubectl + ["scale", "deployment/qual-sink-archive-engine", "--replicas=1"])
+        self.wait("staged Engine manual under-scaling is observed", lambda: self.available("qual-sink-archive-engine"))
+        self.upgrade(invalid, "Engine is not fully available")
+        self.command(self.kubectl + ["scale", "deployment/qual-sink-archive-engine", "--replicas=2"])
+        self.wait("staged Engine returns to the configured minimum", lambda: self.available("qual-sink-archive-engine"))
         self.values["stores"]["archive"]["state"] = "active"
         self.upgrade()
         self.wait("new Store routing converges", self.no_terminating)

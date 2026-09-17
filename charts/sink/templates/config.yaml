@@ -33,7 +33,10 @@
 {{- $deployment := lookup "apps/v1" "Deployment" $.Release.Namespace $engineName }}
 {{- $status := default dict $deployment.status }}
 {{- $spec := default dict $deployment.spec }}
-{{- if or (not $deployment) (lt (int (default 0 $status.observedGeneration)) (int $deployment.metadata.generation)) (lt (int (default 0 $status.availableReplicas)) (int (default 2 $spec.replicas))) (ne (int (default 0 $status.updatedReplicas)) (int (default 2 $spec.replicas))) }}{{- fail (printf "Store %s Engine is not fully available; wait before activating" $store) }}{{- end }}
+{{- $minimum := int $engine.replicaCount }}
+{{- if ne $engine.autoscaling.mode "none" }}{{- $minimum = int $engine.autoscaling.minReplicas }}{{- end }}
+{{- $desired := max $minimum (int (default 1 $spec.replicas)) }}
+{{- if or (not $deployment) (lt (int (default 0 $status.observedGeneration)) (int $deployment.metadata.generation)) (lt (int (default 0 $status.availableReplicas)) (int $desired)) (ne (int (default 0 $status.updatedReplicas)) (int $desired)) }}{{- fail (printf "Store %s Engine is not fully available; wait before activating" $store) }}{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
