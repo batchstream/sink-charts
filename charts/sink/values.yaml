@@ -6,7 +6,7 @@ image:
   # Pin the tested multi-architecture release digest.
   repository: ghcr.io/batchstream/sink
   tag: "0.16.0"
-  digest: ""
+  digest: sha256:0b66a1ec7099bfd42228115ea43d36aaa800bdb3df6c930a60ac2394e95efdcf
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
