@@ -5,7 +5,7 @@ Do not maintain a separate Sink config YAML. The chart renders every role's
 configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
-Chart 0.3.0 deploys one Gateway and independent Engine/Worker workloads per Store.
+Chart 0.4.0 deploys one Gateway and independent Engine/Worker workloads per Store.
 It uses Sink 0.16.0 and requires Kubernetes 1.30+ with native lifecycle sleep hooks.
 This replaces complete-config Secrets with ordinary values and per-field Secret references.
 
@@ -13,6 +13,12 @@ The default empty `stores` map creates an inventory only. Before installing,
 provision externally managed credential Secrets in the release namespace.
 Engine and Worker share `stores.<name>.storage`; runtime YAML is generated.
 The chart does not install backend databases, Kafka, KEDA or monitoring operators.
+
+Gateway clients can use the stable ClusterIP Service or the optional headless
+Service. Their names derive from the Helm release name and therefore do not change
+during upgrades of that release. For a release named `sink` in namespace `sink`,
+the headless SDK address is
+`dns:///sink-sink-gateway-headless.sink.svc.cluster.local:8080`.
 
 ```yaml
 stores:
@@ -48,9 +54,9 @@ validate availability and drain transitions; offline GitOps rendering, rollback
 and uninstall require the documented external checks. Wait for Available replicas
 and terminating Pods, not only a successful `helm --wait`.
 
-- [Complete deployment examples](https://github.com/batchstream/sink-charts/tree/v0.3.0/examples)
-- [Operational runbook and configuration contract](https://github.com/batchstream/sink-charts/blob/v0.3.0/docs/operations.md)
-- [Source and qualification tests](https://github.com/batchstream/sink-charts/tree/v0.3.0)
+- [Complete deployment examples](https://github.com/batchstream/sink-charts/tree/v0.4.0/examples)
+- [Operational runbook and configuration contract](https://github.com/batchstream/sink-charts/blob/v0.4.0/docs/operations.md)
+- [Source and qualification tests](https://github.com/batchstream/sink-charts/tree/v0.4.0)
 
 Search authentication supports `usernameSecretRef` + `passwordSecretRef`, or
 `apiKeySecretRef`, each with `{name, key}`. Gateway never mounts Store credentials.

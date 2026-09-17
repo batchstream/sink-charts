@@ -64,6 +64,10 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(container["env"][0]["value"], str(1024**3 * 80 // 100))
         self.assertEqual(docs["Service", "test-sink-mongo-engine"]["spec"]["clusterIP"], "None")
         self.assertFalse(docs["Service", "test-sink-mongo-engine"]["spec"]["publishNotReadyAddresses"])
+        headless = docs["Service", "test-sink-gateway-headless"]
+        self.assertEqual(headless["spec"]["clusterIP"], "None")
+        self.assertFalse(headless["spec"]["publishNotReadyAddresses"])
+        self.assertEqual(headless["spec"]["selector"], docs["Service", "test-sink-gateway"]["spec"]["selector"])
         self.assertFalse(any(kind == "Secret" for kind, _ in docs))
 
     def test_routes_are_only_active_and_config_changes_roll_gateway(self):
@@ -208,19 +212,50 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(doc["spec"]["minReadySeconds"], 115)
 
     def test_controller_owns_replicas_and_hpa_behavior(self):
-        values = {**BASE, "engineDefaults": {"autoscaling": {"mode": "hpa", "minReplicas": 3, "maxReplicas": 7}}}
+        behavior = {"scaleUp": {"stabilizationWindowSeconds": 0, "selectPolicy": "Max",
+                                "policies": [{"type": "Percent", "value": 100, "periodSeconds": 60}]},
+                    "scaleDown": {"stabilizationWindowSeconds": 600, "selectPolicy": "Min",
+                                  "policies": [{"type": "Pods", "value": 1, "periodSeconds": 300}]}}
+        values = {**BASE, "engineDefaults": {"autoscaling": {"mode": "hpa", "minReplicas": 3, "maxReplicas": 7,
+                                                               "behavior": behavior}}}
         docs = self.manifests(values)
         self.assertNotIn("replicas", docs["Deployment", "test-sink-mongo-engine"]["spec"])
         hpa = docs["HorizontalPodAutoscaler", "test-sink-mongo-engine"]["spec"]
         self.assertEqual((hpa["minReplicas"], hpa["maxReplicas"]), (3, 7))
         self.assertEqual(hpa["behavior"]["scaleDown"]["policies"], [{"type": "Pods", "value": 1, "periodSeconds": 300}])
+        self.assertEqual(hpa["behavior"]["scaleDown"]["stabilizationWindowSeconds"], 600)
         self.assertEqual(docs["Deployment", "test-sink-gateway"]["spec"]["replicas"], 2)
+
+    def test_single_engine_is_explicit_and_never_zero(self):
+        values = {**BASE, "engineDefaults": {"replicaCount": 1, "disruptionBudget": {"maxUnavailable": 0}}}
+        docs = self.manifests(values)
+        self.assertEqual(docs["Deployment", "test-sink-mongo-engine"]["spec"]["replicas"], 1)
+        self.assertEqual(docs["PodDisruptionBudget", "test-sink-mongo-engine"]["spec"]["maxUnavailable"], 0)
+        values["engineDefaults"]["replicaCount"] = 0
+        self.assertIn("engine/mongo requires at least 1 replicas", render(values).stderr)
+
+    def test_scale_down_policy_must_cover_termination(self):
+        values = copy.deepcopy(BASE)
+        values["engineDefaults"] = {"autoscaling": {"mode": "hpa", "behavior": {
+            "scaleUp": {"stabilizationWindowSeconds": 0, "selectPolicy": "Max",
+                        "policies": [{"type": "Pods", "value": 2, "periodSeconds": 60}]},
+            "scaleDown": {"stabilizationWindowSeconds": 300, "selectPolicy": "Min",
+                          "policies": [{"type": "Pods", "value": 1, "periodSeconds": 60}]},
+        }}}
+        result = render(values)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scaleDown policy periodSeconds must cover termination grace (255)", result.stderr)
 
     def test_keda_worker_zero_and_partition_trigger(self):
         values = {"stores": {"mongo": {"storage": STORAGE, "state": "active", "kafka": KAFKA,
                   "worker": {"enabled": True, "allowScaleToZero": True, "disruptionBudget": {"enabled": False},
                              "autoscaling": {"mode": "keda", "minReplicas": 0, "maxReplicas": 8,
-                                             "keda": {"authenticationRef": {"name": "auth"}, "fallback": {"failureThreshold": 3, "replicas": 2}}}}}}}
+                                             "keda": {"initialCooldownPeriod": 60,
+                                                      "restoreToOriginalReplicaCount": True,
+                                                      "authenticationRef": {"name": "auth"},
+                                                      "fallback": {"failureThreshold": 3, "replicas": 2,
+                                                                   "behavior": "currentReplicasIfHigher"},
+                                                      "kafkaTrigger": {"name": "pse-search-lag", "useCachedMetrics": True}}}}}}}
         docs = self.manifests(values, "--api-versions", "keda.sh/v1alpha1/ScaledObject")
         name = "test-sink-mongo-worker"
         deployment = docs["Deployment", name]
@@ -230,7 +265,12 @@ class ChartTests(unittest.TestCase):
         self.assertNotIn(("PodDisruptionBudget", name), docs)
         spec = docs["ScaledObject", name]["spec"]
         self.assertEqual(spec["minReplicaCount"], 0)
+        self.assertEqual(spec["initialCooldownPeriod"], 60)
+        self.assertTrue(spec["advanced"]["restoreToOriginalReplicaCount"])
+        self.assertEqual(spec["fallback"]["behavior"], "currentReplicasIfHigher")
         trigger = spec["triggers"][0]
+        self.assertEqual(trigger["name"], "pse-search-lag")
+        self.assertTrue(trigger["useCachedMetrics"])
         self.assertEqual(trigger["metadata"]["topic"], "mongo")
         self.assertEqual(trigger["metadata"]["consumerGroup"], "mongo-workers")
         self.assertEqual(trigger["metadata"]["allowIdleConsumers"], "false")
@@ -247,6 +287,42 @@ class ChartTests(unittest.TestCase):
              "metadata": {"serverAddress": "http://prometheus", "query": "sum(queue_depth)", "threshold": "10"}}]}
         docs = self.manifests(values, "--api-versions", "keda.sh/v1alpha1/ScaledObject")
         self.assertEqual(docs["ScaledObject", "test-sink-gateway"]["spec"]["pollingInterval"], 30)
+
+    def test_keda_production_controls_and_mixed_fallback(self):
+        triggers = [
+            {"type": "cpu", "name": "cpu", "metricType": "Utilization", "metadata": {"value": "70"}},
+            {"type": "memory", "name": "memory", "metricType": "Utilization", "metadata": {"value": "80"}},
+            {"type": "prometheus", "name": "execution-budget", "metricType": "AverageValue",
+             "useCachedMetrics": True,
+             "metadata": {"serverAddress": "http://prometheus", "query": "sum(sink_execution_store_bytes)",
+                          "threshold": "134217728", "ignoreNullValues": "false"}},
+        ]
+        values = {**BASE, "engineDefaults": {"autoscaling": {
+            "mode": "keda", "minReplicas": 2, "maxReplicas": 10,
+            "keda": {"annotations": {"autoscaling.keda.sh/paused": "false"}, "hpaName": "sink-mongo",
+                     "restoreToOriginalReplicaCount": True, "triggers": triggers,
+                     "fallback": {"failureThreshold": 3, "replicas": 2,
+                                  "behavior": "currentReplicasIfHigher"}}}}}
+        docs = self.manifests(values, "--api-versions", "keda.sh/v1alpha1/ScaledObject")
+        scaled = docs["ScaledObject", "test-sink-mongo-engine"]
+        self.assertEqual(scaled["metadata"]["annotations"], {"autoscaling.keda.sh/paused": "false"})
+        self.assertEqual(scaled["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["name"], "sink-mongo")
+        self.assertTrue(scaled["spec"]["advanced"]["restoreToOriginalReplicaCount"])
+        self.assertEqual(scaled["spec"]["fallback"]["behavior"], "currentReplicasIfHigher")
+        self.assertEqual([trigger["name"] for trigger in scaled["spec"]["triggers"]],
+                         ["cpu", "memory", "execution-budget"])
+
+    def test_keda_fallback_requires_supported_trigger(self):
+        values = {**BASE, "engineDefaults": {"autoscaling": {
+            "mode": "keda", "minReplicas": 2, "maxReplicas": 6,
+            "keda": {"triggers": [
+                {"type": "cpu", "metricType": "Utilization", "metadata": {"value": "70"}},
+                {"type": "memory", "metricType": "Utilization", "metadata": {"value": "80"}},
+            ], "fallback": {"failureThreshold": 3, "replicas": 2}},
+        }}}
+        result = render(values, "--api-versions", "keda.sh/v1alpha1/ScaledObject")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("fallback requires at least one Value/AverageValue trigger", result.stderr)
 
     def test_metrics_are_separate_from_public_service(self):
         values = {**BASE, "gateway": {"service": {"type": "LoadBalancer"}}, "metrics": {"enabled": True, "serviceMonitor": {"enabled": True}}}
@@ -280,7 +356,7 @@ class ChartTests(unittest.TestCase):
 
     def test_unsafe_and_misspelled_settings_fail(self):
         cases = [
-            "mode=engine", "engineDefaults.replicaCount=1", "gateway.replicaCount=0",
+            "mode=engine", "engineDefaults.replicaCount=0", "gateway.replicaCount=0",
             "engineDefaults.pod.preStopSeconds=94", "gateway.pod.terminationGracePeriodSeconds=100",
             "engineDefaults.pod.shutdownBudgetSeconds=60", "requestTimeoutSeconds=301",
             "stores.Bad.state=active", "stores.mongo.state=deleted", "engineDefaults.replicaCont=3",

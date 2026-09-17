@@ -25,8 +25,9 @@ Coverage:
 - A missing key during rotation leaves existing Engine/Worker capacity intact under traffic.
 - Missing Secret and missing key block staged Engine startup and activation.
 
-- Default DNS/termination budgets during simultaneous Gateway/Engine rolling updates.
-- Engine 2 -> 3 -> 2 while a persistent SDK client performs unique creates and reads.
+- Default DNS/termination budgets during simultaneous Gateway/Engine rolling updates,
+  using the Gateway headless Service through a persistent SDK client.
+- Engine 2 -> 3 -> 1 -> 2 while that client performs unique creates and reads.
 - Store staged -> active -> retiring -> removal; existing Store traffic continues.
 - Live Helm lookup rejection of unsafe addition, activation, direct removal,
   missing drain approval and old Gateway Pods during retirement.
@@ -40,7 +41,7 @@ Coverage:
 
 The fixture uses one-node Mongo/Kafka to isolate deployment behavior. It is **not**
 a backend HA, multi-zone, production capacity or EKS load-balancer qualification.
-It uses actual default Chart DNS/drain timings, so allow roughly 15–25 minutes plus
+It uses actual default Chart DNS/drain timings, so allow roughly 20–30 minutes plus
 image downloads. The async verification polls for application, which is expected
 for durable asynchronous completion; synchronous rollout errors fail immediately.
 

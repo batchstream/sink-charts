@@ -233,13 +233,16 @@ class Qualification:
         self.values["stores"]["mongo"]["worker"]["replicaCount"] = 0
         self.upgrade()
         self.wait("rotation Worker drains", self.no_terminating)
-        self.log("Engine scale 2 -> 3 -> 2 under traffic")
+        self.log("Engine scale 2 -> 3 -> 1 -> 2 under traffic")
         self.values["stores"]["mongo"]["engine"]["replicaCount"] = 3
         self.upgrade()
         self.wait("third Engine becomes discoverable before scale-down", lambda: self.available("qual-sink-mongo-engine"))
+        self.values["stores"]["mongo"]["engine"]["replicaCount"] = 1
+        self.upgrade()
+        self.wait("single Engine remains after scale-down", self.no_terminating)
         self.values["stores"]["mongo"]["engine"]["replicaCount"] = 2
         self.upgrade()
-        self.wait("scaled-down Engine fully terminates", self.no_terminating)
+        self.wait("second Engine becomes discoverable", lambda: self.available("qual-sink-mongo-engine"))
         invalid = copy.deepcopy(self.values)
         invalid["stores"]["archive"] = {"state": "active", "storage": self.storage("mongo-v2")}
         self.upgrade(invalid, "must first be staged")

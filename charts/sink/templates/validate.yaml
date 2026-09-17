@@ -5,7 +5,9 @@
 {{- $s := $c.settings -}}{{- $a := $s.autoscaling -}}
 {{- $minimum := int $s.replicaCount -}}
 {{- if ne $a.mode "none" -}}{{- $minimum = int $a.minReplicas -}}{{- end -}}
-{{- $floor := 2 -}}{{- if eq $c.role "worker" -}}{{- $floor = 1 -}}{{- if $s.allowScaleToZero -}}{{- $floor = 0 -}}{{- end -}}{{- end -}}
+{{- $floor := 2 -}}
+{{- if eq $c.role "engine" -}}{{- $floor = 1 -}}{{- end -}}
+{{- if eq $c.role "worker" -}}{{- $floor = 1 -}}{{- if $s.allowScaleToZero -}}{{- $floor = 0 -}}{{- end -}}{{- end -}}
 {{- if lt $minimum $floor -}}{{- fail (printf "%s/%s requires at least %d replicas" $c.role $c.store $floor) -}}{{- end -}}
 {{- if and (eq $minimum 0) $s.disruptionBudget.enabled -}}{{- fail "disable the Worker disruptionBudget when allowing zero replicas" -}}{{- end -}}
 {{- if and (ne $a.mode "none") (lt (int $a.maxReplicas) $minimum) -}}{{- fail "maxReplicas must cover minReplicas" -}}{{- end -}}
@@ -14,13 +16,16 @@
 {{- $grace := include "sink.grace" $c | int -}}
 {{- if lt (int $s.pod.shutdownBudgetSeconds) (mul 4 $s.pod.shutdownTimeoutSeconds | int) -}}{{- fail "shutdownBudgetSeconds must cover at least four sequential shutdown timeouts" -}}{{- end -}}
 {{- if and (eq $c.role "gateway") (lt (int $s.pod.shutdownTimeoutSeconds) (int $.Values.requestTimeoutSeconds)) -}}{{- fail "Gateway shutdownTimeoutSeconds must cover requestTimeoutSeconds" -}}{{- end -}}
-{{- if and (ne $a.mode "none") (lt (int $a.scaleDown.periodSeconds) $grace) -}}{{- fail (printf "%s/%s scaleDown.periodSeconds must cover termination grace (%d)" $c.role $c.store $grace) -}}{{- end -}}
+{{- if ne $a.mode "none" -}}
+{{- range $policy := $a.behavior.scaleDown.policies -}}{{- if lt (int $policy.periodSeconds) $grace -}}{{- fail (printf "%s/%s scaleDown policy periodSeconds must cover termination grace (%d)" $c.role $c.store $grace) -}}{{- end -}}{{- end -}}
+{{- end -}}
 {{- if and (eq $a.mode "hpa") (not (or (gt (int $a.cpuUtilization) 0) (gt (int $a.memoryUtilization) 0) (gt (len $a.extraMetrics) 0))) -}}{{- fail "HPA requires at least one metric" -}}{{- end -}}
 {{- if and (eq $a.mode "keda") (not ($.Capabilities.APIVersions.Has "keda.sh/v1alpha1/ScaledObject")) -}}{{- fail "install KEDA before selecting autoscaling.mode=keda" -}}{{- end -}}
 {{- if and (eq $a.mode "keda") (ne $c.role "worker") (eq (len $a.keda.triggers) 0) (le (int $a.cpuUtilization) 0) -}}{{- fail "default KEDA CPU trigger requires positive cpuUtilization" -}}{{- end -}}
 {{- if and (eq $a.mode "keda") $a.keda.fallback -}}
-{{- if and (ne $c.role "worker") (eq (len $a.keda.triggers) 0) -}}{{- fail "KEDA fallback needs explicit AverageValue triggers; CPU fallback is unsupported" -}}{{- end -}}
-{{- range $trigger := $a.keda.triggers -}}{{- if or (has $trigger.type (list "cpu" "memory")) (ne (default "AverageValue" $trigger.metricType) "AverageValue") -}}{{- fail "KEDA fallback requires AverageValue triggers without CPU/memory" -}}{{- end -}}{{- end -}}
+{{- $fallbackCapable := eq $c.role "worker" -}}
+{{- range $trigger := $a.keda.triggers -}}{{- if and (not (has $trigger.type (list "cpu" "memory"))) (has (default "AverageValue" $trigger.metricType) (list "AverageValue" "Value")) -}}{{- $fallbackCapable = true -}}{{- end -}}{{- end -}}
+{{- if not $fallbackCapable -}}{{- fail "KEDA fallback requires at least one Value/AverageValue trigger other than CPU or memory" -}}{{- end -}}
 {{- if or (lt (int $a.keda.fallback.replicas) $minimum) (gt (int $a.keda.fallback.replicas) (int $a.maxReplicas)) -}}{{- fail "KEDA fallback replicas must be within the scaling range" -}}{{- end -}}
 {{- end -}}
 {{- if eq $c.role "worker" -}}

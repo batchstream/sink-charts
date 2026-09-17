@@ -188,6 +188,26 @@
                 "type": "string",
                 "minLength": 0
               }
+            },
+            "headless": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "annotations": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 0
+                  }
+                }
+              },
+              "required": [
+                "enabled",
+                "annotations"
+              ]
             }
           }
         },
@@ -531,26 +551,6 @@
             "type": "object"
           }
         },
-        "scaleDown": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "stabilizationWindowSeconds": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 3600
-            },
-            "periodSeconds": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1800
-            },
-            "pods": {
-              "type": "integer",
-              "minimum": 1
-            }
-          }
-        },
         "keda": {
           "type": "object",
           "additionalProperties": false,
@@ -654,6 +654,14 @@
                 "replicas": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "behavior": {
+                  "enum": [
+                    "static",
+                    "currentReplicas",
+                    "currentReplicasIfHigher",
+                    "currentReplicasIfLower"
+                  ]
                 }
               },
               "anyOf": [
@@ -667,8 +675,50 @@
                   ]
                 }
               ]
+            },
+            "initialCooldownPeriod": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 0
+              }
+            },
+            "hpaName": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 253,
+              "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$"
+            },
+            "restoreToOriginalReplicaCount": {
+              "type": "boolean"
+            },
+            "kafkaTrigger": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 253,
+                  "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$"
+                },
+                "useCachedMetrics": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "useCachedMetrics"
+              ]
             }
           }
+        },
+        "behavior": {
+          "$ref": "#/definitions/scalingBehavior"
         }
       }
     },
@@ -885,6 +935,78 @@
             ]
           }
         }
+      ]
+    },
+    "scalingPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "Pods",
+            "Percent"
+          ]
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1800
+        }
+      },
+      "required": [
+        "type",
+        "value",
+        "periodSeconds"
+      ]
+    },
+    "scalingRules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stabilizationWindowSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "selectPolicy": {
+          "enum": [
+            "Max",
+            "Min",
+            "Disabled"
+          ]
+        },
+        "policies": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/scalingPolicy"
+          }
+        }
+      },
+      "required": [
+        "stabilizationWindowSeconds",
+        "selectPolicy",
+        "policies"
+      ]
+    },
+    "scalingBehavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scaleUp": {
+          "$ref": "#/definitions/scalingRules"
+        },
+        "scaleDown": {
+          "$ref": "#/definitions/scalingRules"
+        }
+      },
+      "required": [
+        "scaleUp",
+        "scaleDown"
       ]
     }
   }

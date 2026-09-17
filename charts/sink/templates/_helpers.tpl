@@ -75,19 +75,7 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- toYaml (dict "mode" "gateway" "gateway" $gateway "service" $service "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .Values.gateway.pod.shutdownTimeoutSeconds))) -}}
 {{- end -}}
 {{- define "sink.behavior" -}}
-scaleUp:
-  stabilizationWindowSeconds: 0
-  policies:
-    - type: Pods
-      value: 2
-      periodSeconds: 60
-scaleDown:
-  stabilizationWindowSeconds: {{ .scaleDown.stabilizationWindowSeconds }}
-  selectPolicy: Min
-  policies:
-    - type: Pods
-      value: {{ .scaleDown.pods }}
-      periodSeconds: {{ .scaleDown.periodSeconds }}
+{{ toYaml .behavior }}
 {{- end -}}
 
 {{- define "sink.cpuMillis" -}}

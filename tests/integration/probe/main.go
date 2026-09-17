@@ -39,7 +39,7 @@ type report struct {
 
 func main() {
 	opts := options{}
-	flag.StringVar(&opts.address, "address", "dns:///qual-sink-gateway:8080", "Gateway address")
+	flag.StringVar(&opts.address, "address", "dns:///qual-sink-gateway-headless:8080", "Gateway address")
 	flag.StringVar(&opts.store, "store", "mongo", "Store")
 	flag.StringVar(&opts.dataset, "dataset", "rollout", "Unique test collection")
 	flag.StringVar(&opts.mode, "mode", "continuous", "continuous, publish or verify")

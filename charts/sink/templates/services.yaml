@@ -38,6 +38,26 @@ spec:
       targetPort: grpc
       appProtocol: kubernetes.io/h2c
 {{- end }}
+{{- if and (eq $c.role "gateway") $s.service.headless.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sink.name" (dict "raw" (printf "%s-headless" $name)) }}
+  labels: {{ include "sink.labels" $c | nindent 4 }}
+  {{- with $s.service.headless.annotations }}
+  annotations: {{ toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: false
+  selector: {{ include "sink.selector" $c | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ $s.service.port }}
+      targetPort: grpc
+      appProtocol: kubernetes.io/h2c
+{{- end }}
 {{- if $s.disruptionBudget.enabled }}
 ---
 apiVersion: policy/v1
