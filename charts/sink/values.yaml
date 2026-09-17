@@ -44,6 +44,11 @@ gateway:
     type: ClusterIP
     port: 8080
     annotations: {}
+    # Stable Pod-address discovery for gRPC clients using dns:/// and round_robin.
+    # The name is <Helm release>-sink-gateway-headless and excludes the chart version.
+    headless:
+      enabled: true
+      annotations: {}
   runtime:
     # Additional gateway/service/grpc tuning; managed routing/listeners cannot be overridden.
     gateway: {}
@@ -78,16 +83,29 @@ gateway:
     cpuUtilization: 70
     memoryUtilization: 0
     extraMetrics: []
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      periodSeconds: 300
-      pods: 1
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - {type: Percent, value: 100, periodSeconds: 60}
+          - {type: Pods, value: 2, periodSeconds: 60}
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Min
+        policies:
+          - {type: Pods, value: 1, periodSeconds: 300}
     keda:
       pollingInterval: 30
       cooldownPeriod: 300
+      initialCooldownPeriod: 0
+      annotations: {}
+      hpaName: ""
+      restoreToOriginalReplicaCount: false
       triggers: [] # Empty uses CPU for Gateway/Engine; Worker uses its Kafka topic.
       authenticationRef: {}
-      fallback: {} # Optional {failureThreshold: 3, replicas: 2}; AverageValue triggers only.
+      fallback: {} # Optional {failureThreshold: 3, replicas: 2, behavior: currentReplicasIfHigher}.
+      kafkaTrigger: {name: kafka-lag, useCachedMetrics: true}
   disruptionBudget:
     enabled: true
     maxUnavailable: 1
@@ -125,8 +143,29 @@ engineDefaults:
     cpuUtilization: 70
     memoryUtilization: 0
     extraMetrics: []
-    scaleDown: {stabilizationWindowSeconds: 300, periodSeconds: 300, pods: 1}
-    keda: {pollingInterval: 30, cooldownPeriod: 300, triggers: [], authenticationRef: {}, fallback: {}}
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - {type: Percent, value: 100, periodSeconds: 60}
+          - {type: Pods, value: 2, periodSeconds: 60}
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Min
+        policies:
+          - {type: Pods, value: 1, periodSeconds: 300}
+    keda:
+      pollingInterval: 30
+      cooldownPeriod: 300
+      initialCooldownPeriod: 0
+      annotations: {}
+      hpaName: ""
+      restoreToOriginalReplicaCount: false
+      triggers: []
+      authenticationRef: {}
+      fallback: {}
+      kafkaTrigger: {name: kafka-lag, useCachedMetrics: true}
   disruptionBudget: {enabled: true, maxUnavailable: 1}
 
 workerDefaults:
@@ -162,8 +201,29 @@ workerDefaults:
     cpuUtilization: 70
     memoryUtilization: 0
     extraMetrics: []
-    scaleDown: {stabilizationWindowSeconds: 300, periodSeconds: 300, pods: 1}
-    keda: {pollingInterval: 30, cooldownPeriod: 300, triggers: [], authenticationRef: {}, fallback: {}}
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - {type: Percent, value: 100, periodSeconds: 60}
+          - {type: Pods, value: 2, periodSeconds: 60}
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Min
+        policies:
+          - {type: Pods, value: 1, periodSeconds: 300}
+    keda:
+      pollingInterval: 30
+      cooldownPeriod: 300
+      initialCooldownPeriod: 0
+      annotations: {}
+      hpaName: ""
+      restoreToOriginalReplicaCount: false
+      triggers: []
+      authenticationRef: {}
+      fallback: {}
+      kafkaTrigger: {name: kafka-lag, useCachedMetrics: true}
   disruptionBudget: {enabled: true, maxUnavailable: 1}
 
 # Store keys are stable Sink identities, not array positions. See examples/cluster-values.yaml.

@@ -6,11 +6,12 @@ configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
 One release deploys a Sink cluster: a shared Gateway and independently configured
-Engine and Worker Deployments for each Store. Chart `0.3.0` generates runtime
+Engine and Worker Deployments for each Store. Chart `0.4.0` generates runtime
 configuration and references individual credential keys in external Secrets. It targets Sink **0.16.0**, SDK **0.8.0**, and
 Kubernetes **1.30+** with native lifecycle sleep hooks enabled.
 
 - Stable Store names, generated headless discovery, staged activation and retirement.
+- Stable Gateway ClusterIP and headless DNS names derived from the Helm release name.
 - Per-Store resources, credential references, scheduling, replica ranges and HPA/KEDA.
 - Calculated DNS withdrawal/request drain budgets, rolling surge, readiness and PDBs.
 - Explicit Worker scale-to-zero, Kafka partition limits, lag triggers and authentication references.
@@ -35,6 +36,11 @@ helm upgrade --install sink ./charts/sink --namespace sink --create-namespace \
   -f examples/cluster-values.yaml --wait --timeout 15m
 ```
 
+The first `sink` is the Helm release name, not a version. Upgrading the same release
+keeps `sink-sink-gateway` and `sink-sink-gateway-headless` stable. SDKs that need
+client-side endpoint discovery can use
+`dns:///sink-sink-gateway-headless.sink.svc.cluster.local:8080`.
+
 Customize a copy of `cluster-values.yaml` for your actual backends. Its HPA example
 requires metrics-server. Without it, use `autoscaling.mode: none`. To use Kafka lag
 scaling, install KEDA first and add `-f examples/keda-values.yaml`. Authentication
@@ -44,7 +50,7 @@ of Store backend credentials. See the runbook for Sink Kafka authentication limi
 The image is pinned to a verified multi-architecture digest at
 `ghcr.io/batchstream/sink`. Override `image.repository` **and** `image.digest`
 together when moving artifacts. To select by tag, explicitly set `image.digest: ""`.
-Chart 0.3 requires Sink 0.16+ and removes the complete-config Secret API from 0.2.
+Chart 0.4 requires Sink 0.16+ and removes the complete-config Secret API from 0.2.
 Move ordinary configuration into Store values and create per-field credential
 Secrets before upgrading; the schema rejects the old `engine/worker.config` keys.
 

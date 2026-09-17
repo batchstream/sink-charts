@@ -1,4 +1,12 @@
 Sink cluster {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+{{- $gatewayName := include "sink.componentName" (dict "root" . "role" "gateway" "store" "") }}
+{{- $gatewayHeadlessName := include "sink.name" (dict "raw" (printf "%s-headless" $gatewayName)) }}
+
+Stable Gateway Service: {{ $gatewayName }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}
+{{- if .Values.gateway.service.headless.enabled }}
+Stable headless SDK address: dns:///{{ $gatewayHeadlessName }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}
+{{- end }}
+These names derive from the Helm release name, not the chart version.
 
 Store lifecycle: staged -> active -> retiring -> remove.
 Provision the referenced Store credential Secrets before enabling workloads.

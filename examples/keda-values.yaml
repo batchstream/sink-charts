@@ -11,9 +11,16 @@ stores:
         keda:
           pollingInterval: 15
           cooldownPeriod: 300
+          initialCooldownPeriod: 60
+          kafkaTrigger:
+            name: mongo-lag
+            useCachedMetrics: true
           # Kafka lag trigger is generated. Optional authentication reference:
           # authenticationRef: {name: kafka-scaler-auth}
-          fallback: {failureThreshold: 3, replicas: 2}
+          fallback:
+            failureThreshold: 3
+            replicas: 2
+            behavior: currentReplicasIfHigher
           # Additional triggers can keep Workers running during known busy hours.
           triggers:
             - type: cron

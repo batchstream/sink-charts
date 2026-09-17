@@ -2,7 +2,7 @@
 
 ## Configuration and initial admission
 
-Chart 0.3 uses a shared `stores.<name>.storage` object for each Engine/Worker
+Chart 0.4 uses a shared `stores.<name>.storage` object for each Engine/Worker
 pair. **Maintain only values, not a separate Sink config YAML.** The chart generates
 the complete configuration for every role. It requires Sink 0.16.0+. The previous complete configuration Secret interface
 has been removed. Store map keys remain stable Sink identities; changing a key
@@ -15,6 +15,13 @@ once and rendered consistently for each role. MongoDB tuning uses
 `maxConcurrentGroups` (16). Resource/memory limits, discovery convergence, rolling
 surge and graceful exit have the defaults described below. Advanced tuning remains
 inside values under `runtime`; it never requires a separately maintained config file.
+
+Gateway Service names derive from the Helm release name, not the chart version, so
+upgrading one release keeps client addresses stable. A release named `sink` in the
+`sink` namespace exposes `sink-sink-gateway.sink.svc.cluster.local` and, by default,
+the headless discovery name `sink-sink-gateway-headless.sink.svc.cluster.local`.
+The latter is suitable for SDK client-side endpoint discovery. Renaming a release
+or namespace changes both names and is a cluster migration.
 
 The chart generates ordinary runtime YAML in ConfigMaps. It manages role, Store
 name, listener/metrics addresses, request and shutdown timeouts, and Kafka identity
@@ -258,7 +265,10 @@ and connection growth when scaling; more replicas may reduce useful throughput.
 
 Exactly one `autoscaling.mode` owns replicas: `none`, `hpa`, or `keda`. When a
 controller is enabled, the Deployment omits `replicas`, preventing ordinary Helm
-upgrades from resetting a controller's live count. Gateway/Engine minimum is two.
+upgrades from resetting a controller's live count. Gateway minimum is two. Engine
+defaults to two, but an explicit fixed or minimum count of one is allowed with
+`maxUnavailable: 0`; it has no replica redundancy during failure or termination.
+Engine zero is rejected because synchronous Store operations need a routable Engine.
 Workers can run one only with a compatible PDB; zero requires `allowScaleToZero`
 and a disabled PDB. Zero means async application waits for polling and cold start.
 Synchronous Engine operations remain independent of Worker count.
@@ -276,17 +286,23 @@ CPU HPA/KEDA needs metrics-server; external HPA metrics need an adapter. KEDA an
 its CRDs must exist before enabling it. The chart references existing
 TriggerAuthentication/ClusterTriggerAuthentication; match Kafka TLS/SASL policy to
 the actual brokers. The scaler's access is separate from Sink's Kafka access.
-Fallback can be enabled for supported AverageValue triggers; CPU/memory fallback
-is rejected. Kafka scaler failure should retain capacity via a tested fallback,
-not be assumed to mean zero lag.
+Fallback can be enabled when at least one trigger supports `Value` or `AverageValue`,
+including Kafka and Prometheus. CPU and memory triggers do not participate in
+fallback, but may coexist with a supported trigger on the same ScaledObject. Kafka
+scaler failure should retain capacity via a tested fallback, not be assumed to mean
+zero lag. The Worker Kafka trigger uses cached metrics by default so its configured
+polling interval remains the scaler's query cadence. KEDA annotations, generated
+HPA name, original-replica restoration and fallback behavior are explicit values.
 
-Default HPA scale-down allows one Pod per 300s with a 300s stabilization window.
-The period must cover Pod termination grace, limiting overlapping departures.
-Scale-up allows two Pods per minute. Tune scale-up against partition rebalance and
-backend capacity. KEDA `cooldownPeriod` covers **1 -> 0**; HPA behavior governs
-nonzero scaling. `pollingInterval` is emitted for zero activation or cached metrics;
-nonzero HPA fetch cadence is controlled by Kubernetes. Inapplicable zero controls
-are omitted to avoid misleading KEDA settings. KEDA zero transitions and manual replica edits are not protected
+Default scale-down allows one Pod per 300s with a 300s stabilization window. Every
+configured scale-down policy period must cover Pod termination grace, limiting
+overlapping departures. Scale-up selects the larger of 100% or two Pods per minute.
+The complete `autoscaling.behavior` object is available for both HPA and KEDA's
+generated HPA. Tune scale-up against partition rebalance and backend capacity. KEDA
+`cooldownPeriod` covers **1 -> 0**; HPA behavior governs nonzero scaling.
+`pollingInterval` is emitted for zero activation or cached metrics; nonzero HPA fetch
+cadence is controlled by Kubernetes. Inapplicable zero controls are omitted to avoid
+misleading KEDA settings. KEDA zero transitions and manual replica edits are not protected
 by the HPA scale-down rate. Worker graceful Kafka departure still needs its entire
 termination budget. Choose cooldown longer than routine idle gaps to avoid churn.
 
