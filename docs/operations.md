@@ -96,7 +96,9 @@ Avoid simultaneously draining nodes and rolling/scaling all components.
 ## Store lifecycle
 
 Use a full, version-controlled values file for each upgrade, with `--wait --timeout
-15m`. Inspect terminating Pods as well: Deployment availability does not mean all
+15m`. Also check `availableReplicas` against desired replicas: Helm can return
+when Pods are Ready before `minReadySeconds` elapses. Inspect terminating Pods as
+well: Deployment availability does not mean all
 old Pods have exited. Helm hooks do not delete data, and there is no resource keep
 policy leaving orphaned Deployments behind.
 
@@ -123,6 +125,8 @@ policy leaving orphaned Deployments behind.
    `lifecycle.removalApprovals`. Live Helm rejects direct active Store deletion,
    missing approval and retirement while old Gateway Pods remain. Keep external
    Secrets/backends/topics until your retention/rollback requirements are satisfied.
+   Clear completed removal approvals from the next values revision. A previously
+   routed Store cannot return to `staged`, which would bypass retirement draining.
 
 Disabling a Worker also requires retirement plus a removal approval after draining.
 Kafka broker/topic/group/partition metadata is immutable while a Store exists;

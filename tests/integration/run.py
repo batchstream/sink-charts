@@ -195,6 +195,11 @@ class Qualification:
         invalid["stores"]["archive"]["state"] = "active"
         invalid["stores"]["archive"]["engine"]["pod"] = {"configRevision": "unverified"}
         self.upgrade(invalid, "activation must be a separate upgrade")
+        invalid = copy.deepcopy(self.values)
+        invalid["stores"]["archive"]["state"] = "active"
+        if not self.available("qual-sink-archive-engine"):
+            self.upgrade(invalid, "Engine is not fully available")
+        self.wait("staged Engine passes the discovery availability window", lambda: self.available("qual-sink-archive-engine"))
         self.values["stores"]["archive"]["state"] = "active"
         self.upgrade()
         self.wait("new Store routing converges", self.no_terminating)
@@ -205,6 +210,9 @@ class Qualification:
         self.upgrade(invalid, "must be retiring before removal")
         self.values["stores"]["archive"]["state"] = "retiring"
         self.upgrade()
+        invalid = copy.deepcopy(self.values)
+        invalid["stores"]["archive"]["state"] = "staged"
+        self.upgrade(invalid, "cannot return to staged")
         invalid = copy.deepcopy(self.values)
         del invalid["stores"]["archive"]
         self.upgrade(invalid, "removal requires")

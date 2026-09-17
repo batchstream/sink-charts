@@ -25,7 +25,7 @@
 {{- if ne $settings.state "staged" }}{{- fail (printf "new Store %s must first be staged" $store) }}{{- end }}
 {{- else }}
 {{- if ne (toJson $old.kafka) (toJson $kafka) }}{{- fail (printf "Store %s Kafka identity/policy is immutable; drain and migrate explicitly" $store) }}{{- end }}
-{{- if and (eq $old.state "active") (eq $settings.state "staged") }}{{- fail "active Stores must transition through retiring" }}{{- end }}
+{{- if and (ne $old.state "staged") (eq $settings.state "staged") }}{{- fail "previously routed Stores cannot return to staged; use retiring" }}{{- end }}
 {{- if and $old.workerEnabled (not $worker.enabled) (not (and (eq $settings.state "retiring") (has $store $.Values.lifecycle.removalApprovals))) }}{{- fail "disabling a Worker requires retiring and an explicit removalApproval after draining" }}{{- end }}
 {{- if and (eq $settings.state "active") (ne $old.state "active") }}
 {{- if ne $old.engineHash $entry.engineHash }}{{- fail (printf "Store %s activation must be a separate upgrade after Engine configuration converges" $store) }}{{- end }}
