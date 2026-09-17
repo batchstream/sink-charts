@@ -1,4 +1,0 @@
-mode: engine
-fullnameOverride: sink-primary-engine
-config:
-  existingSecret: sink-primary-engine-config

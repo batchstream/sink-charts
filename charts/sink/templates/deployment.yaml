@@ -1,106 +1,141 @@
-{{- if le (int .Values.terminationGracePeriodSeconds) (int .Values.preStopDelaySeconds) -}}
-{{- fail "terminationGracePeriodSeconds must exceed preStopDelaySeconds and leave time for Sink shutdown" -}}
-{{- end -}}
+{{- range $component := include "sink.components" . | fromJsonArray }}
+{{- $c := merge (dict "root" $) $component }}
+{{- $s := $c.settings }}
+{{- $name := include "sink.componentName" $c }}
+{{- $preStop := include "sink.preStop" $c | int }}
+{{- $readySeconds := int $s.pod.minReadySeconds }}
+{{- if eq $c.role "engine" }}{{- $readySeconds = max $readySeconds (include "sink.discoverySeconds" $ | int) }}{{- end }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sink.fullname" . }}
+  name: {{ $name }}
   labels:
-    {{- include "sink.labels" . | nindent 4 }}
+    {{- include "sink.labels" $c | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
-  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
-  minReadySeconds: {{ .Values.minReadySeconds }}
+  {{- if eq $s.autoscaling.mode "none" }}
+  replicas: {{ $s.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  minReadySeconds: {{ $readySeconds }}
+  progressDeadlineSeconds: {{ max 600 (add $readySeconds (include "sink.grace" $c | int) 300) }}
   strategy:
     type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
   selector:
     matchLabels:
-      {{- include "sink.selectorLabels" . | nindent 6 }}
+      {{- include "sink.selector" $c | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       labels:
-        {{- include "sink.selectorLabels" . | nindent 8 }}
+        {{- include "sink.selector" $c | nindent 8 }}
+        {{- with $s.pod.labels }}{{ toYaml . | nindent 8 }}{{- end }}
+      annotations:
+        sink.batchstream.io/config-revision: {{ $s.pod.configRevision | quote }}
+        {{- if eq $c.role "gateway" }}
+        sink.batchstream.io/config-checksum: {{ include "sink.gatewayConfig" $ | sha256sum | quote }}
+        {{- end }}
+        {{- with $s.pod.annotations }}{{ toYaml . | nindent 8 }}{{- end }}
     spec:
-      serviceAccountName: {{ include "sink.serviceAccountName" . }}
+      serviceAccountName: {{ $name }}
       automountServiceAccountToken: false
-      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ include "sink.grace" $c }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
       {{- end }}
+      {{- with $s.pod.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with $s.pod.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.pod.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.pod.affinity }}
+      affinity: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      topologySpreadConstraints:
+        {{- if $s.pod.topologySpreadConstraints }}
+        {{- toYaml $s.pod.topologySpreadConstraints | nindent 8 }}
+        {{- else }}
+        {{- range $topology := list "kubernetes.io/hostname" "topology.kubernetes.io/zone" }}
+        - maxSkew: 1
+          topologyKey: {{ $topology }}
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "sink.selector" $c | nindent 14 }}
+        {{- end }}
+        {{- end }}
       containers:
         - name: sink
-          image: {{ include "sink.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ if $.Values.image.digest }}{{ printf "%s@%s" $.Values.image.repository $.Values.image.digest | quote }}{{ else }}{{ printf "%s:%s" $.Values.image.repository $.Values.image.tag | quote }}{{ end }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
           args: ["--config", "/etc/sink/sink.yaml"]
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
           ports:
-            {{- if ne .Values.mode "worker" }}
-            - name: grpc
-              containerPort: {{ .Values.ports.grpc }}
+            - {name: health, containerPort: 8081}
+            {{- if ne $c.role "worker" }}
+            - {name: grpc, containerPort: 8080}
             {{- end }}
-            - name: health
-              containerPort: {{ .Values.ports.health }}
-            {{- if .Values.metrics.enabled }}
-            - name: metrics
-              containerPort: {{ .Values.ports.metrics }}
+            {{- if $.Values.metrics.enabled }}
+            - {name: metrics, containerPort: 9090}
             {{- end }}
+          env:
+            - name: GOMEMLIMIT
+              value: {{ printf "%d" (div (mul (include "sink.memoryBytes" $s.pod.resources.limits.memory | int64) $s.pod.goMemoryLimitPercent) 100) | quote }}
+            {{- with $s.pod.env }}{{ toYaml . | nindent 12 }}{{- end }}
+          {{- with $s.pod.envFrom }}
+          envFrom: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          resources: {{ toYaml $s.pod.resources | nindent 12 }}
           startupProbe:
-            {{- toYaml .Values.startupProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
+            httpGet: {path: /livez, port: health}
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 60
           livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          {{- if gt (int .Values.preStopDelaySeconds) 0 }}
+            httpGet: {path: /livez, port: health}
+            periodSeconds: 10
+            timeoutSeconds: 4
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              {{- if and (eq $c.role "engine") (ne $s.readiness "process") }}
+              path: {{ printf "/readyz?service=sink.%s.%s" $s.readiness $c.store | quote }}
+              {{- else }}
+              path: /readyz
+              {{- end }}
+              port: health
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 1
+          {{- if gt $preStop 0 }}
           lifecycle:
             preStop:
-              sleep:
-                seconds: {{ .Values.preStopDelaySeconds }}
+              sleep: {seconds: {{ $preStop }}}
           {{- end }}
-          {{- with .Values.env }}
-          env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.envFrom }}
-          envFrom:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-            - name: configuration
-              mountPath: /etc/sink
-              readOnly: true
+            - {name: config, mountPath: /etc/sink, readOnly: true}
       volumes:
-        - name: configuration
+        - name: config
+          {{- if eq $c.role "gateway" }}
+          configMap:
+            name: {{ $name }}
+          {{- else }}
           secret:
-            secretName: {{ include "sink.configSecretName" . }}
+            secretName: {{ default (include "sink.name" (dict "raw" (printf "%s-config" $name))) $s.config.existingSecret }}
             items:
-              - key: {{ .Values.config.key | quote }}
-                path: sink.yaml
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.topologySpreadConstraints }}
-      topologySpreadConstraints:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+              - {key: {{ $s.config.key | quote }}, path: sink.yaml}
+          {{- end }}
+{{- end }}

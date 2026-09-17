@@ -1,9 +1,11 @@
-# Example only: use the same backend and Kafka policy on the matching Engine.
+# Must share the Engine's backend, source/DLQ policy and Store identity.
 mode: worker
-health:
-  address: ":8081"
+health: {address: ":8081"}
+prometheus: {enabled: false, address: ":9090"}
+service:
+  request: {timeout: 30s}
 storage:
-  name: primary
+  name: mongo
   driver: mongodb
   mongodb:
     uri: mongodb://mongodb.example.invalid:27017/?replicaSet=rs0
@@ -11,10 +13,9 @@ storage:
     enabled: true
     brokers: [kafka.example.invalid:9092]
     topic:
-      name: primary-mutations
-      partitions: 4
-      replication_factor: 2
+      name: mongo-mutations-v1
+      partitions: 8
+      replication_factor: 3
       min_insync_replicas: 2
-    consumer:
-      group_id: primary-workers
-shutdown_timeout: 15s
+    consumer: {group_id: mongo-workers-v1, processing_timeout: 20s}
+shutdown_timeout: 30s

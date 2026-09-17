@@ -1,0 +1,83 @@
+{{- $inventoryName := include "sink.name" (dict "raw" (printf "%s-inventory" (include "sink.base" .))) }}
+{{- $previous := dict }}
+{{- $hasInventory := false }}
+{{- if .Values.lifecycle.enforceTransitions }}
+{{- $inventory := lookup "v1" "ConfigMap" .Release.Namespace $inventoryName }}
+{{- if $inventory }}{{- $previous = fromJson $inventory.data.stores }}{{- $hasInventory = true }}{{- end }}
+{{- end }}
+{{- $current := dict }}
+{{- $topics := dict }}{{- $groups := dict }}
+{{- range $store, $settings := .Values.stores }}
+{{- $engine := mergeOverwrite (deepCopy $.Values.engineDefaults) (default dict $settings.engine) }}
+{{- $worker := mergeOverwrite (deepCopy $.Values.workerDefaults) (default dict $settings.worker) }}
+{{- $kafka := omit (default dict $settings.kafka) "lagThreshold" }}
+{{- $entry := dict "state" $settings.state "kafka" $kafka "workerEnabled" $worker.enabled "engineHash" (toJson $engine | sha256sum) }}
+{{- $_ := set $current $store $entry }}
+{{- if $kafka }}
+{{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
+{{- if hasKey $pair.seen $pair.value }}{{- fail (printf "Kafka %s must be unique per Store" $pair.name) }}{{- end }}
+{{- $_ := set $pair.seen $pair.value true }}
+{{- end }}
+{{- end }}
+{{- if $hasInventory }}
+{{- $old := get $previous $store }}
+{{- if not $old }}
+{{- if ne $settings.state "staged" }}{{- fail (printf "new Store %s must first be staged" $store) }}{{- end }}
+{{- else }}
+{{- if ne (toJson $old.kafka) (toJson $kafka) }}{{- fail (printf "Store %s Kafka identity/policy is immutable; drain and migrate explicitly" $store) }}{{- end }}
+{{- if and (eq $old.state "active") (eq $settings.state "staged") }}{{- fail "active Stores must transition through retiring" }}{{- end }}
+{{- if and $old.workerEnabled (not $worker.enabled) (not (and (eq $settings.state "retiring") (has $store $.Values.lifecycle.removalApprovals))) }}{{- fail "disabling a Worker requires retiring and an explicit removalApproval after draining" }}{{- end }}
+{{- if and (eq $settings.state "active") (ne $old.state "active") }}
+{{- if ne $old.engineHash $entry.engineHash }}{{- fail (printf "Store %s activation must be a separate upgrade after Engine configuration converges" $store) }}{{- end }}
+{{- $engineName := include "sink.componentName" (dict "root" $ "role" "engine" "store" $store) }}
+{{- $deployment := lookup "apps/v1" "Deployment" $.Release.Namespace $engineName }}
+{{- $status := default dict $deployment.status }}
+{{- $spec := default dict $deployment.spec }}
+{{- if or (not $deployment) (lt (int (default 0 $status.observedGeneration)) (int $deployment.metadata.generation)) (lt (int (default 0 $status.availableReplicas)) (int (default 2 $spec.replicas))) (ne (int (default 0 $status.updatedReplicas)) (int (default 2 $spec.replicas))) }}{{- fail (printf "Store %s Engine is not fully available; wait before activating" $store) }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $store, $old := $previous }}
+{{- if not (hasKey $current $store) }}
+{{- if eq $old.state "active" }}{{- fail (printf "Store %s must be retiring before removal" $store) }}{{- end }}
+{{- if not (has $store $.Values.lifecycle.removalApprovals) }}{{- fail (printf "Store %s removal requires lifecycle.removalApprovals after writer/Kafka/DLQ drain" $store) }}{{- end }}
+{{- if eq $old.state "retiring" }}
+{{- $gatewayName := include "sink.componentName" (dict "root" $ "role" "gateway" "store" "") }}
+{{- $gateway := lookup "apps/v1" "Deployment" $.Release.Namespace $gatewayName }}
+{{- $pods := lookup "v1" "Pod" $.Release.Namespace "" }}
+{{- range $pod := default list $pods.items }}
+{{- $labels := default dict $pod.metadata.labels }}
+{{- if and (eq (get $labels "app.kubernetes.io/instance") $.Release.Name) (eq (get $labels "app.kubernetes.io/component") "gateway") }}
+{{- $expected := include "sink.gatewayConfig" $ | sha256sum }}
+{{- if or $pod.metadata.deletionTimestamp (not $gateway) (ne (get (default dict $pod.metadata.annotations) "sink.batchstream.io/config-checksum") $expected) }}{{- fail (printf "Store %s still has old or terminating Gateway Pods; wait before removal" $store) }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $inventoryName }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  stores: {{ toJson $current | quote }}
+{{- $active := false }}
+{{- range .Values.stores }}{{- if eq .state "active" }}{{- $active = true }}{{- end }}{{- end }}
+{{- if $active }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sink.componentName" (dict "root" . "role" "gateway" "store" "") }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  sink.yaml: |
+    {{- include "sink.gatewayConfig" . | nindent 4 }}
+{{- end }}

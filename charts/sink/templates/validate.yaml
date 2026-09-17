@@ -1,0 +1,43 @@
+{{- if and .Values.metrics.serviceMonitor.enabled (not .Values.metrics.enabled) -}}{{- fail "serviceMonitor requires metrics.enabled" -}}{{- end -}}
+{{- if and .Values.metrics.serviceMonitor.enabled (not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor")) -}}{{- fail "install the ServiceMonitor CRD before enabling serviceMonitor" -}}{{- end -}}
+{{- range $component := include "sink.components" . | fromJsonArray -}}
+{{- $c := merge (dict "root" $) $component -}}
+{{- $s := $c.settings -}}{{- $a := $s.autoscaling -}}
+{{- $minimum := int $s.replicaCount -}}
+{{- if ne $a.mode "none" -}}{{- $minimum = int $a.minReplicas -}}{{- end -}}
+{{- $floor := 2 -}}{{- if eq $c.role "worker" -}}{{- $floor = 1 -}}{{- if $s.allowScaleToZero -}}{{- $floor = 0 -}}{{- end -}}{{- end -}}
+{{- if lt $minimum $floor -}}{{- fail (printf "%s/%s requires at least %d replicas" $c.role $c.store $floor) -}}{{- end -}}
+{{- if and (eq $minimum 0) $s.disruptionBudget.enabled -}}{{- fail "disable the Worker disruptionBudget when allowing zero replicas" -}}{{- end -}}
+{{- if and (ne $a.mode "none") (lt (int $a.maxReplicas) $minimum) -}}{{- fail "maxReplicas must cover minReplicas" -}}{{- end -}}
+{{- if and (eq $a.mode "hpa") (eq $minimum 0) -}}{{- fail "scale to zero requires KEDA or manual replicas" -}}{{- end -}}
+{{- if and $s.disruptionBudget.enabled (ge (int $s.disruptionBudget.maxUnavailable) $minimum) -}}{{- fail "disruptionBudget.maxUnavailable must be less than minimum replicas" -}}{{- end -}}
+{{- $grace := include "sink.grace" $c | int -}}
+{{- if lt (int $s.pod.shutdownBudgetSeconds) (mul 4 $s.pod.shutdownTimeoutSeconds | int) -}}{{- fail "shutdownBudgetSeconds must cover at least four sequential shutdown timeouts" -}}{{- end -}}
+{{- if and (eq $c.role "gateway") (lt (int $s.pod.shutdownTimeoutSeconds) (int $.Values.requestTimeoutSeconds)) -}}{{- fail "Gateway shutdownTimeoutSeconds must cover requestTimeoutSeconds" -}}{{- end -}}
+{{- if and (ne $a.mode "none") (lt (int $a.scaleDown.periodSeconds) $grace) -}}{{- fail (printf "%s/%s scaleDown.periodSeconds must cover termination grace (%d)" $c.role $c.store $grace) -}}{{- end -}}
+{{- if and (eq $a.mode "hpa") (not (or (gt (int $a.cpuUtilization) 0) (gt (int $a.memoryUtilization) 0) (gt (len $a.extraMetrics) 0))) -}}{{- fail "HPA requires at least one metric" -}}{{- end -}}
+{{- if and (eq $a.mode "keda") (not ($.Capabilities.APIVersions.Has "keda.sh/v1alpha1/ScaledObject")) -}}{{- fail "install KEDA before selecting autoscaling.mode=keda" -}}{{- end -}}
+{{- if and (eq $a.mode "keda") (ne $c.role "worker") (eq (len $a.keda.triggers) 0) (le (int $a.cpuUtilization) 0) -}}{{- fail "default KEDA CPU trigger requires positive cpuUtilization" -}}{{- end -}}
+{{- if and (eq $a.mode "keda") $a.keda.fallback -}}
+{{- if and (ne $c.role "worker") (eq (len $a.keda.triggers) 0) -}}{{- fail "KEDA fallback needs explicit AverageValue triggers; CPU fallback is unsupported" -}}{{- end -}}
+{{- range $trigger := $a.keda.triggers -}}{{- if or (has $trigger.type (list "cpu" "memory")) (ne (default "AverageValue" $trigger.metricType) "AverageValue") -}}{{- fail "KEDA fallback requires AverageValue triggers without CPU/memory" -}}{{- end -}}{{- end -}}
+{{- if or (lt (int $a.keda.fallback.replicas) $minimum) (gt (int $a.keda.fallback.replicas) (int $a.maxReplicas)) -}}{{- fail "KEDA fallback replicas must be within the scaling range" -}}{{- end -}}
+{{- end -}}
+{{- if eq $c.role "worker" -}}
+{{- if not (and $c.kafka.brokers $c.kafka.topic $c.kafka.consumerGroup $c.kafka.partitions) -}}{{- fail (printf "Store %s Worker requires kafka brokers, topic, consumerGroup and partitions" $c.store) -}}{{- end -}}
+{{- $max := int $s.replicaCount -}}{{- if ne $a.mode "none" -}}{{- $max = int $a.maxReplicas -}}{{- end -}}
+{{- if gt $max (int $c.kafka.partitions) -}}{{- fail (printf "Store %s Worker maximum replicas exceeds Kafka partitions" $c.store) -}}{{- end -}}
+{{- end -}}
+{{- $cpuRequest := include "sink.cpuMillis" $s.pod.resources.requests.cpu | float64 -}}
+{{- if le $cpuRequest 0.0 -}}{{- fail "CPU request must be positive" -}}{{- end -}}
+{{- if hasKey $s.pod.resources.limits "cpu" -}}
+{{- if lt (include "sink.cpuMillis" $s.pod.resources.limits.cpu | float64) $cpuRequest -}}{{- fail "CPU request exceeds limit" -}}{{- end -}}
+{{- end -}}
+{{- $limit := include "sink.memoryBytes" $s.pod.resources.limits.memory | int64 -}}
+{{- $request := include "sink.memoryBytes" $s.pod.resources.requests.memory | int64 -}}
+{{- if gt $request $limit -}}{{- fail "memory request exceeds limit" -}}{{- end -}}
+{{- range $env := $s.pod.env -}}{{- if eq $env.name "GOMEMLIMIT" -}}{{- fail "set pod.goMemoryLimitPercent instead of overriding GOMEMLIMIT" -}}{{- end -}}{{- end -}}
+{{- range $key, $_ := $s.pod.labels -}}{{- if or (hasPrefix "app.kubernetes.io/" $key) (hasPrefix "sink.batchstream.io/" $key) (eq $key "helm.sh/chart") -}}{{- fail "pod.labels cannot override chart identity labels" -}}{{- end -}}{{- end -}}
+{{- range $key, $_ := $s.pod.annotations -}}{{- if hasPrefix "sink.batchstream.io/" $key -}}{{- fail "pod.annotations cannot override chart configuration annotations" -}}{{- end -}}{{- end -}}
+{{- end -}}
+{{- if or (hasKey .Values.gateway.runtime.gateway "routes") (hasKey .Values.gateway.runtime.gateway "dns_refresh_interval") (hasKey .Values.gateway.runtime.grpc "address") (hasKey (default dict .Values.gateway.runtime.service.request) "timeout") -}}{{- fail "Gateway routes, DNS refresh, listeners and request timeout are chart-managed" -}}{{- end -}}
