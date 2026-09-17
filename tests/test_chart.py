@@ -11,7 +11,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CHART = ROOT / "charts" / "sink"
-BASE = {"stores": {"mongo": {"state": "active"}}}
+STORAGE = {"driver": "mongodb", "mongodb": {"uriSecretRef": {"name": "mongo-v1", "key": "uri"}}}
+BASE = {"stores": {"mongo": {"storage": STORAGE, "state": "active"}}}
 KAFKA = {"brokers": ["kafka:9092"], "topic": "mongo", "consumerGroup": "mongo-workers", "partitions": 8}
 
 
@@ -34,7 +35,7 @@ class ChartTests(unittest.TestCase):
     def test_empty_and_staged_cluster(self):
         empty = self.manifests({})
         self.assertEqual(list(empty), [("ConfigMap", "test-sink-inventory")])
-        staged = self.manifests({"stores": {"mongo": {"state": "staged"}}})
+        staged = self.manifests({"stores": {"mongo": {"storage": STORAGE, "state": "staged"}}})
         self.assertIn(("Deployment", "test-sink-mongo-engine"), staged)
         self.assertNotIn(("Deployment", "test-sink-gateway"), staged)
 
@@ -67,7 +68,7 @@ class ChartTests(unittest.TestCase):
 
     def test_routes_are_only_active_and_config_changes_roll_gateway(self):
         values = copy.deepcopy(BASE)
-        values["stores"].update({"archive": {"state": "staged"}, "old": {"state": "retiring"}})
+        values["stores"].update({"archive": {"storage": STORAGE, "state": "staged"}, "old": {"storage": STORAGE, "state": "retiring"}})
         first = self.manifests(values)
         config = yaml.safe_load(first["ConfigMap", "test-sink-gateway"]["data"]["sink.yaml"])
         self.assertEqual(config["gateway"]["routes"], [{"store": "mongo", "target": "dns:///test-sink-mongo-engine.sink.svc.cluster.local:8080", "tls": {"insecure": True}}])
@@ -80,13 +81,123 @@ class ChartTests(unittest.TestCase):
 
     def test_per_store_merge_does_not_leak(self):
         values = copy.deepcopy(BASE)
-        values["stores"]["archive"] = {"state": "staged", "engine": {"config": {"existingSecret": "archive", "key": "complete.yaml"}, "pod": {"resources": {"limits": {"memory": "2Gi"}}, "configRevision": "v2"}}}
+        values["stores"]["archive"] = {"storage": STORAGE, "state": "staged", "engine": {"pod": {"resources": {"limits": {"memory": "2Gi"}}, "configRevision": "v2"}}}
         docs = self.manifests(values)
         archive = docs["Deployment", "test-sink-archive-engine"]["spec"]["template"]["spec"]
         mongo = docs["Deployment", "test-sink-mongo-engine"]["spec"]["template"]["spec"]
         self.assertEqual(archive["containers"][0]["resources"]["limits"]["memory"], "2Gi")
         self.assertEqual(mongo["containers"][0]["resources"]["limits"]["memory"], "1Gi")
-        self.assertEqual(archive["volumes"][0]["secret"], {"secretName": "archive", "items": [{"key": "complete.yaml", "path": "sink.yaml"}]})
+        self.assertEqual(archive["volumes"][0]["configMap"], {"name": "test-sink-archive-engine"})
+
+    def test_shared_secret_projection_and_runtime(self):
+        values = copy.deepcopy(BASE)
+        async_config = {"kafka": KAFKA, "worker": {"enabled": True}}
+        values["stores"]["mongo"].update(async_config)
+        docs = self.manifests(values)
+        configs = []
+        for role in ["engine", "worker"]:
+            name = f"test-sink-mongo-{role}"
+            pod = docs["Deployment", name]["spec"]["template"]
+            projection = pod["spec"]["volumes"][1]["projected"]
+            self.assertEqual(projection["defaultMode"], 0o440)
+            self.assertEqual(projection["sources"], [{"secret": {"name": "mongo-v1", "optional": False,
+                             "items": [{"key": "uri", "path": "mongodb-uri"}]}}])
+            config = yaml.safe_load(docs["ConfigMap", name]["data"]["sink.yaml"])
+            self.assertEqual(config["mode"], role)
+            self.assertEqual(config["storage"]["mongodb"]["uri_file"], "/etc/sink-secrets/mongodb-uri")
+            self.assertEqual(config["storage"]["mongodb"]["metadata_field"], "__sink")
+            self.assertEqual(config["storage"]["mongodb"]["max_concurrent_writes"], 64)
+            self.assertEqual(config["storage"]["mongodb"]["max_concurrent_groups"], 16)
+            self.assertEqual(config["storage"]["kafka"]["topic"]["replication_factor"], 3)
+            self.assertEqual(config["storage"]["kafka"]["consumer"]["group_id"], KAFKA["consumerGroup"])
+            self.assertEqual(config["service"]["request"]["timeout"], "30s")
+            configs.append(config["storage"])
+        self.assertEqual(*configs)
+        gateway = docs["Deployment", "test-sink-gateway"]
+        self.assertEqual(len(gateway["spec"]["template"]["spec"]["volumes"]), 1)
+        values["stores"]["mongo"]["credentialRevision"] = "v2"
+        rotated = self.manifests(values)
+        for role in ["engine", "worker"]:
+            name = f"test-sink-mongo-{role}"
+            self.assertNotEqual(docs["Deployment", name]["spec"]["template"], rotated["Deployment", name]["spec"]["template"])
+        self.assertEqual(gateway, rotated["Deployment", "test-sink-gateway"])
+        values["stores"]["mongo"]["storage"]["mongodb"]["uriSecretRef"]["name"] = "mongo-v2"
+        versioned = self.manifests(values)
+        for role in ["engine", "worker"]:
+            name = f"test-sink-mongo-{role}"
+            self.assertNotEqual(rotated["Deployment", name]["spec"]["template"], versioned["Deployment", name]["spec"]["template"])
+        values["stores"]["mongo"]["storage"]["mongodb"]["maxConcurrentWrites"] = 32
+        tuned = self.manifests(values)
+        name = "test-sink-mongo-engine"
+        config = yaml.safe_load(tuned["ConfigMap", name]["data"]["sink.yaml"])
+        self.assertEqual(config["storage"]["mongodb"]["max_concurrent_writes"], 32)
+        self.assertNotEqual(versioned["Deployment", name]["spec"]["template"]["metadata"]["annotations"],
+                            tuned["Deployment", name]["spec"]["template"]["metadata"]["annotations"])
+
+    def test_advanced_tuning_is_generated_from_values(self):
+        values = copy.deepcopy(BASE)
+        values["metrics"] = {"enabled": True}
+        values["engineDefaults"] = {"runtime": {"service": {"execution": {"max_requests": 16}},
+                                               "grpc": {"max_receive_message_bytes": "8MiB"}}}
+        values["stores"]["mongo"]["engine"] = {"runtime": {"service": {"batching": {"max_wait": "5ms"}}}}
+        values["stores"]["mongo"]["worker"] = {"enabled": True, "runtime": {"service": {"execution": {"max_requests": 4}}}}
+        values["stores"]["mongo"]["kafka"] = {**KAFKA, "runtime": {"consumer": {"processing_timeout": "20s"},
+                                                                          "dead_letter": {"retention": "720h"}}}
+        docs = self.manifests(values)
+        engine = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-engine"]["data"]["sink.yaml"])
+        worker = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-worker"]["data"]["sink.yaml"])
+        self.assertEqual(engine["service"]["execution"]["max_requests"], 16)
+        self.assertEqual(engine["service"]["batching"]["max_wait"], "5ms")
+        self.assertEqual(worker["service"]["execution"]["max_requests"], 4)
+        self.assertNotIn("batching", worker["service"])
+        self.assertEqual(engine["grpc"]["max_receive_message_bytes"], "8MiB")
+        self.assertEqual(engine["storage"], worker["storage"])
+        self.assertEqual(engine["storage"]["kafka"]["consumer"]["processing_timeout"], "20s")
+        self.assertTrue(engine["prometheus"]["enabled"])
+        self.assertTrue(worker["prometheus"]["enabled"])
+
+    def test_search_credentials_and_rejected_plaintext(self):
+        for driver in ["elasticsearch", "opensearch"]:
+            for auth in [{}, {"username": "sink", "passwordSecretRef": {"name": "search", "key": "password"}},
+                         {"usernameSecretRef": {"name": "search", "key": "user"}, "passwordSecretRef": {"name": "search", "key": "pass"}},
+                         {"apiKeySecretRef": {"name": "search", "key": "api-key"}}]:
+                search = {"endpoints": ["https://search:9200"], **auth}
+                values = {"stores": {"search": {"state": "active", "storage": {"driver": driver, "search": search}}}}
+                docs = self.manifests(values)
+                config = yaml.safe_load(docs["ConfigMap", "test-sink-search-engine"]["data"]["sink.yaml"])
+                self.assertNotIn("SecretRef", json.dumps(config))
+                expected = {"endpoints": ["https://search:9200"]}
+                if "username" in auth:
+                    expected["username"] = "sink"
+                for key, runtime, filename in [("usernameSecretRef", "username_file", "search-username"),
+                                                ("passwordSecretRef", "password_file", "search-password"),
+                                                ("apiKeySecretRef", "api_key_file", "search-api-key")]:
+                    if key in auth:
+                        expected[runtime] = f"/etc/sink-secrets/{filename}"
+                self.assertEqual(config["storage"]["search"], expected)
+                sources = docs["Deployment", "test-sink-search-engine"]["spec"]["template"]["spec"]["volumes"]
+                self.assertEqual(len(sources), 2 if auth else 1)
+        bad_storage = [
+            {"driver": "opensearch", "search": {"endpoints": ["https://user:password@search"]}},
+            {"driver": "mongodb", "mongodb": {"uri": "mongodb://inline"}},
+            {"driver": "mongodb", "mongodb": {"uriSecretRef": {"name": "mongo"}}},
+            {"driver": "mongodb", "mongodb": {"uriSecretRef": {"name": "mongo", "key": "../uri"}}},
+            {"driver": "mongodb", "mongodb": {"uriSecretRef": {"name": "mongo", "key": "uri", "namespace": "other"}}},
+            {"driver": "opensearch", "search": {"endpoints": ["http://search"], "password": "inline"}},
+            {"driver": "opensearch", "search": {"endpoints": ["http://search"], "username": "sink"}},
+            {"driver": "opensearch", "search": {"endpoints": ["http://search"], "username": "sink", "usernameSecretRef": {"name": "s", "key": "u"}}},
+            {"driver": "opensearch", "search": {"endpoints": ["http://search"], "username": "sink", "passwordSecretRef": {"name": "s", "key": "p"}, "apiKeySecretRef": {"name": "s", "key": "a"}}},
+        ]
+        for storage in bad_storage:
+            values = {"stores": {"test": {"state": "staged", "storage": storage}}}
+            result = render(values)
+            self.assertNotEqual(result.returncode, 0, storage)
+        for override in ["engineDefaults.config.existingSecret=old", "engineDefaults.runtime.grpc.address=:9999",
+                         "workerDefaults.runtime.service.request.timeout=1s"]:
+            values = copy.deepcopy(BASE)
+            async_config = {"kafka": KAFKA, "worker": {"enabled": True}}
+            values["stores"]["mongo"].update(async_config)
+            self.assertNotEqual(render(values, "--set", override).returncode, 0)
 
     def test_budget_recalculates_with_dns(self):
         values = {**BASE, "discovery": {"dnsRefreshSeconds": 40, "dnsCacheSeconds": 60}}
@@ -106,7 +217,7 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(docs["Deployment", "test-sink-gateway"]["spec"]["replicas"], 2)
 
     def test_keda_worker_zero_and_partition_trigger(self):
-        values = {"stores": {"mongo": {"state": "active", "kafka": KAFKA,
+        values = {"stores": {"mongo": {"storage": STORAGE, "state": "active", "kafka": KAFKA,
                   "worker": {"enabled": True, "allowScaleToZero": True, "disruptionBudget": {"enabled": False},
                              "autoscaling": {"mode": "keda", "minReplicas": 0, "maxReplicas": 8,
                                              "keda": {"authenticationRef": {"name": "auth"}, "fallback": {"failureThreshold": 3, "replicas": 2}}}}}}}
@@ -145,13 +256,25 @@ class ChartTests(unittest.TestCase):
         self.assertIn(("ServiceMonitor", "test-sink"), docs)
 
     def test_long_names_remain_unique(self):
-        values = {"fullnameOverride": "x" * 80, "stores": {"first": {"state": "active"}, "second": {"state": "active"}}}
+        values = {"fullnameOverride": "x" * 80, "stores": {"first": {"storage": STORAGE, "state": "active"}, "second": {"storage": STORAGE, "state": "active"}}}
         docs = self.manifests(values)
         for _, name in docs:
             self.assertLessEqual(len(name), 63)
         self.assertEqual(len([1 for kind, _ in docs if kind == "Deployment"]), 3)
 
+    def test_kafka_dead_letter_topics_cannot_overlap(self):
+        for topic in ["mongo", "mongo.dlq", " mongo ", " mongo.dlq "]:
+            values = copy.deepcopy(BASE)
+            values["stores"]["mongo"]["kafka"] = copy.deepcopy(KAFKA)
+            kafka = {**KAFKA, "topic": topic, "consumerGroup": "archive"}
+            values["stores"]["archive"] = {"state": "staged", "storage": STORAGE, "kafka": kafka}
+            self.assertNotEqual(render(values).returncode, 0)
+        values = copy.deepcopy(BASE)
+        values["stores"]["mongo"]["kafka"] = {**KAFKA, "runtime": {"dead_letter": {"topic": "mongo"}}}
+        self.assertNotEqual(render(values).returncode, 0)
+
     def test_examples(self):
+        self.manifests({}, "-f", str(ROOT / "examples/search-values.yaml"))
         self.manifests({}, "-f", str(ROOT / "examples/cluster-values.yaml"))
         self.manifests({}, "-f", str(ROOT / "examples/cluster-values.yaml"), "-f", str(ROOT / "examples/keda-values.yaml"), "--api-versions", "keda.sh/v1alpha1/ScaledObject")
 
@@ -176,7 +299,7 @@ class ChartTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stdout)
 
     def test_worker_overpartition_and_implicit_zero_fail(self):
-        values = {"stores": {"mongo": {"state": "active", "kafka": KAFKA, "worker": {"enabled": True, "replicaCount": 9}}}}
+        values = {"stores": {"mongo": {"storage": STORAGE, "state": "active", "kafka": KAFKA, "worker": {"enabled": True, "replicaCount": 9}}}}
         self.assertIn("exceeds Kafka partitions", render(values).stderr)
         values["stores"]["mongo"]["worker"]["replicaCount"] = 0
         self.assertIn("requires at least 1", render(values).stderr)

@@ -19,6 +19,12 @@ and delete only the recorded test cluster if that happens.
 
 Coverage:
 
+- Authenticated MongoDB with synthetic URI-reserved/Unicode credentials projected from Secrets.
+- Both roles rotate to a new immutable Secret under traffic; revoke the old backend
+  user after termination, then verify synchronous and asynchronous operations.
+- A missing key during rotation leaves existing Engine/Worker capacity intact under traffic.
+- Missing Secret and missing key block staged Engine startup and activation.
+
 - Default DNS/termination budgets during simultaneous Gateway/Engine rolling updates.
 - Engine 2 -> 3 -> 2 while a persistent SDK client performs unique creates and reads.
 - Store staged -> active -> retiring -> removal; existing Store traffic continues.
@@ -43,3 +49,6 @@ with `--cluster sink-chart-NAME --kubeconfig /absolute/owned/kubeconfig`. That c
 is still deleted on completion. Never point this option at a shared cluster.
 
 Use `--scenario scaling` to rerun only the Kafka/KEDA regression in a fresh cluster.
+
+Use `--sink-image repository:tag` to qualify an explicitly built local candidate.
+Only the disposable test cluster loads that image. Default runs use the pinned release.

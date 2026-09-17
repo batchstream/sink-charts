@@ -1,21 +1,29 @@
 # Sink cluster
 
-Chart 0.2.0 deploys one Gateway and independent Engine/Worker workloads per Store.
-It uses Sink 0.15.0 and requires Kubernetes 1.30+ with native lifecycle sleep hooks.
-This is a new values interface, replacing the earlier single-role chart.
+When using this chart, **values are the only runtime configuration source**.
+Do not maintain a separate Sink config YAML. The chart renders every role's
+configuration with shared Store settings and managed operational defaults;
+external Secrets contain credential values only.
+
+Chart 0.3.0 deploys one Gateway and independent Engine/Worker workloads per Store.
+It uses Sink 0.16.0 and requires Kubernetes 1.30+ with native lifecycle sleep hooks.
+This replaces complete-config Secrets with ordinary values and per-field Secret references.
 
 The default empty `stores` map creates an inventory only. Before installing,
-create external Secrets containing complete role-specific Sink configurations.
+provision externally managed credential Secrets in the release namespace.
+Engine and Worker share `stores.<name>.storage`; runtime YAML is generated.
 The chart does not install backend databases, Kafka, KEDA or monitoring operators.
 
 ```yaml
 stores:
   orders:
     state: staged
+    storage:
+      driver: mongodb
+      mongodb:
+        uriSecretRef: {name: orders-mongo-v1, key: uri}
     engine:
-      config: {existingSecret: orders-engine-config}
       pod:
-        configRevision: "v1"
         resources:
           requests: {cpu: "1", memory: 1Gi}
           limits: {memory: 2Gi}
@@ -40,6 +48,13 @@ validate availability and drain transitions; offline GitOps rendering, rollback
 and uninstall require the documented external checks. Wait for Available replicas
 and terminating Pods, not only a successful `helm --wait`.
 
-- [Complete deployment examples](https://github.com/batchstream/sink-charts/tree/v0.2.0/examples)
-- [Operational runbook and configuration contract](https://github.com/batchstream/sink-charts/blob/v0.2.0/docs/operations.md)
-- [Source and qualification tests](https://github.com/batchstream/sink-charts/tree/v0.2.0)
+- [Complete deployment examples](https://github.com/batchstream/sink-charts/tree/v0.3.0/examples)
+- [Operational runbook and configuration contract](https://github.com/batchstream/sink-charts/blob/v0.3.0/docs/operations.md)
+- [Source and qualification tests](https://github.com/batchstream/sink-charts/tree/v0.3.0)
+
+Search authentication supports `usernameSecretRef` + `passwordSecretRef`, or
+`apiKeySecretRef`, each with `{name, key}`. Gateway never mounts Store credentials.
+Secret bytes are read once at startup. Use versioned immutable Secret names to
+roll both roles; `credentialRevision` forces a restart for in-place updates.
+Keep both credentials valid until all old Pods have terminated. See the runbook
+for projection, missing-key failure behavior, rotation, rollback and Kafka limits.

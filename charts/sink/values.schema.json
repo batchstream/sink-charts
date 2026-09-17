@@ -262,6 +262,32 @@
                 "lagThreshold": {
                   "type": "integer",
                   "minimum": 1
+                },
+                "replicationFactor": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minInSyncReplicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "runtime": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "topic": {
+                      "type": "object"
+                    },
+                    "producer": {
+                      "type": "object"
+                    },
+                    "consumer": {
+                      "type": "object"
+                    },
+                    "dead_letter": {
+                      "type": "object"
+                    }
+                  }
                 }
               },
               "required": [
@@ -270,10 +296,17 @@
                 "consumerGroup",
                 "partitions"
               ]
+            },
+            "storage": {
+              "$ref": "#/definitions/storage"
+            },
+            "credentialRevision": {
+              "type": "string"
             }
           },
           "required": [
-            "state"
+            "state",
+            "storage"
           ]
         }
       }
@@ -669,27 +702,24 @@
         "disruptionBudget": {
           "$ref": "#/definitions/disruptionBudget"
         },
-        "config": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "existingSecret": {
-              "type": "string",
-              "minLength": 0
-            },
-            "key": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]+$"
-            }
-          }
-        },
         "readiness": {
           "enum": [
             "storage",
             "kafka",
             "process"
           ]
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "service": {
+              "type": "object"
+            },
+            "grpc": {
+              "type": "object"
+            }
+          }
         }
       }
     },
@@ -713,25 +743,149 @@
         "enabled": {
           "type": "boolean"
         },
-        "config": {
+        "allowScaleToZero": {
+          "type": "boolean"
+        },
+        "runtime": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "existingSecret": {
-              "type": "string",
-              "minLength": 0
+            "service": {
+              "type": "object"
             },
-            "key": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]+$"
+            "grpc": {
+              "type": "object"
             }
           }
-        },
-        "allowScaleToZero": {
-          "type": "boolean"
         }
       }
+    },
+    "secretKeyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        }
+      },
+      "required": [
+        "name",
+        "key"
+      ]
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "driver": {
+          "enum": [
+            "mongodb",
+            "elasticsearch",
+            "opensearch"
+          ]
+        },
+        "mongodb": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "uriSecretRef": {
+              "$ref": "#/definitions/secretKeyRef"
+            },
+            "metadataField": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxConcurrentWrites": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxConcurrentGroups": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "uriSecretRef"
+          ]
+        },
+        "search": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoints": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "username": {
+              "type": "string",
+              "minLength": 1
+            },
+            "usernameSecretRef": {
+              "$ref": "#/definitions/secretKeyRef"
+            },
+            "passwordSecretRef": {
+              "$ref": "#/definitions/secretKeyRef"
+            },
+            "apiKeySecretRef": {
+              "$ref": "#/definitions/secretKeyRef"
+            }
+          },
+          "required": [
+            "endpoints"
+          ]
+        }
+      },
+      "required": [
+        "driver"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "driver": {
+              "const": "mongodb"
+            }
+          },
+          "required": [
+            "mongodb"
+          ],
+          "not": {
+            "required": [
+              "search"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "driver": {
+              "enum": [
+                "elasticsearch",
+                "opensearch"
+              ]
+            }
+          },
+          "required": [
+            "search"
+          ],
+          "not": {
+            "required": [
+              "mongodb"
+            ]
+          }
+        }
+      ]
     }
   }
 }

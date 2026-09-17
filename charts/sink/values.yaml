@@ -3,10 +3,10 @@ nameOverride: ""
 fullnameOverride: ""
 clusterDomain: cluster.local
 image:
-  # Verified 0.15.0 registry location predates the organization transfer.
-  repository: ghcr.io/liran/sink
-  tag: "0.15.0"
-  digest: sha256:b240d56f3df686e9e42d863deb7ac7f52bddf321397b43ba919f665ddfbf21a7
+  # Pin the tested multi-architecture release digest.
+  repository: ghcr.io/batchstream/sink
+  tag: "0.16.0"
+  digest: sha256:0b66a1ec7099bfd42228115ea43d36aaa800bdb3df6c930a60ac2394e95efdcf
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -95,12 +95,10 @@ gateway:
 # Stores inherit these defaults. Every nested field can be overridden per Store.
 engineDefaults:
   replicaCount: 2
-  config:
-    existingSecret: "" # Default: <component name>-config; key contains complete Sink YAML.
-    key: sink.yaml
+  runtime: {service: {}, grpc: {}} # Nonsecret per-role tuning only.
   readiness: storage # storage | kafka | process; do not combine dependency restarts with liveness.
   pod:
-    configRevision: "" # Bump when externally managed configuration changes.
+    configRevision: "" # Bump to reload an in-place Secret change; prefer versioned Secret names.
     annotations: {}
     labels: {}
     resources:
@@ -110,7 +108,7 @@ engineDefaults:
     env: []
     envFrom: []
     minReadySeconds: 10 # Effective minimum also covers discovery convergence.
-    shutdownTimeoutSeconds: 30 # Must match the external configuration.
+    shutdownTimeoutSeconds: 30 # Generated into the runtime configuration.
     shutdownBudgetSeconds: 150
     preStopSeconds: null
     terminationGracePeriodSeconds: null
@@ -135,7 +133,7 @@ workerDefaults:
   enabled: false # Enable together with the Store's Kafka settings.
   replicaCount: 2
   allowScaleToZero: false # Explicitly accept delayed application while scaled to zero.
-  config: {existingSecret: "", key: sink.yaml}
+  runtime: {service: {}, grpc: {}}
   pod:
     configRevision: ""
     annotations: {}
@@ -171,4 +169,20 @@ workerDefaults:
 # Store keys are stable Sink identities, not array positions. See examples/cluster-values.yaml.
 # Lifecycle: staged (backends only) -> active (routed) -> retiring (unrouted, retained) -> remove.
 # Do not rename Store keys, Kafka topics/groups or backend targets in place.
+# Example:
+# stores:
+#   orders:
+#     state: staged
+#     storage:
+#       driver: mongodb
+#       mongodb:
+#         uriSecretRef: {name: orders-mongo-v1, key: uri}
+#         metadataField: __sink
+#         maxConcurrentWrites: 64
+#         maxConcurrentGroups: 16
+#     credentialRevision: "" # Roll both roles after an in-place Secret update.
+#     engine: {runtime: {service: {}, grpc: {}}}
+#     worker: {enabled: false}
+# Add kafka metadata to enable async delivery; defaults: replicationFactor=3,
+# minInSyncReplicas=2. kafka.runtime carries additional nonsecret Kafka tuning.
 stores: {}

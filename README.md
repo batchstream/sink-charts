@@ -1,12 +1,17 @@
 # Sink Helm charts
 
+When using this chart, **values are the only runtime configuration source**.
+Do not maintain a separate Sink config YAML. The chart renders every role's
+configuration with shared Store settings and managed operational defaults;
+external Secrets contain credential values only.
+
 One release deploys a Sink cluster: a shared Gateway and independently configured
-Engine and Worker Deployments for each Store. Chart `0.2.0` replaces the original
-single-role values interface. It targets Sink **0.15.0**, SDK **0.8.0**, and
+Engine and Worker Deployments for each Store. Chart `0.3.0` generates runtime
+configuration and references individual credential keys in external Secrets. It targets Sink **0.16.0**, SDK **0.8.0**, and
 Kubernetes **1.30+** with native lifecycle sleep hooks enabled.
 
 - Stable Store names, generated headless discovery, staged activation and retirement.
-- Per-Store resources, configuration Secrets, scheduling, replica ranges and HPA/KEDA.
+- Per-Store resources, credential references, scheduling, replica ranges and HPA/KEDA.
 - Calculated DNS withdrawal/request drain budgets, rolling surge, readiness and PDBs.
 - Explicit Worker scale-to-zero, Kafka partition limits, lag triggers and authentication references.
 - Unprivileged read-only containers, no Kubernetes token/RBAC, separate metrics Services.
@@ -18,11 +23,12 @@ budget assumptions, not a zero-error guarantee under arbitrary DNS/backend failu
 
 ## Install
 
-Create a namespace and externally managed complete Engine/Worker configuration
-Secrets, following [the examples](examples). Sink does **not** substitute environment
-variables into its YAML. Never put credentials in committed values files. Use your
-secret manager to create `sink-mongo-engine-config`, `sink-mongo-worker-config` and,
-if using the staged archive example, `sink-archive-engine-config`, with key `sink.yaml`.
+Create the release namespace and provision `sink-mongo-v1` and `sink-archive-v1`
+Secrets there. Each example references a key named `uri` containing its complete
+MongoDB URI. Use your secret manager; never commit credentials to values files.
+Engine and Worker share one Store configuration and its Secret references. See
+[credential handling and rotation](docs/operations.md#store-credentials) and
+[search authentication examples](examples/search-values.yaml).
 
 ```sh
 helm upgrade --install sink ./charts/sink --namespace sink --create-namespace \
@@ -33,12 +39,14 @@ Customize a copy of `cluster-values.yaml` for your actual backends. Its HPA exam
 requires metrics-server. Without it, use `autoscaling.mode: none`. To use Kafka lag
 scaling, install KEDA first and add `-f examples/keda-values.yaml`. Authentication
 uses existing TriggerAuthentication resources; scaler credentials are independent
-of the Sink runtime Secret.
+of Store backend credentials. See the runbook for Sink Kafka authentication limits.
 
-The image is pinned to the verified 0.15.0 multi-architecture digest at
-`ghcr.io/liran/sink`, where that release was published before the organization
-transfer. Override `image.repository` **and** `image.digest` together when moving
-artifacts. To select by tag, explicitly set `image.digest: ""`.
+The image is pinned to a verified multi-architecture digest at
+`ghcr.io/batchstream/sink`. Override `image.repository` **and** `image.digest`
+together when moving artifacts. To select by tag, explicitly set `image.digest: ""`.
+Chart 0.3 requires Sink 0.16+ and removes the complete-config Secret API from 0.2.
+Move ordinary configuration into Store values and create per-field credential
+Secrets before upgrading; the schema rejects the old `engine/worker.config` keys.
 
 ## Configure and operate
 
@@ -50,8 +58,11 @@ Store lifecycle, controller handoff, GitOps, failure cases and configuration con
 stores:
   orders:
     state: staged
+    storage:
+      driver: mongodb
+      mongodb:
+        uriSecretRef: {name: orders-mongo-v1, key: uri}
     engine:
-      config: {existingSecret: orders-engine-config}
       pod:
         resources:
           requests: {cpu: "1", memory: 1Gi}
