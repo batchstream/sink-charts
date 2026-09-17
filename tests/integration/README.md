@@ -28,6 +28,9 @@ Coverage:
   mutation retries and SDK reads configured for one attempt.
 - Async acceptance with zero Workers, actual Kafka backlog, KEDA activation and
   multiple consumers, all accepted records applied, return to zero and reactivation.
+  Worker scheduling is held until HPA observes the backlog, modeling node provisioning
+  and avoiding a fast consumer draining all lag before the first HPA sample. Replica
+  changes are made by KEDA/HPA, never manually forced by the test.
 
 The fixture uses one-node Mongo/Kafka to isolate deployment behavior. It is **not**
 a backend HA, multi-zone, production capacity or EKS load-balancer qualification.
@@ -38,3 +41,5 @@ for durable asynchronous completion; synchronous rollout errors fail immediately
 For development only, an explicitly created disposable Kind cluster can be adopted
 with `--cluster sink-chart-NAME --kubeconfig /absolute/owned/kubeconfig`. That cluster
 is still deleted on completion. Never point this option at a shared cluster.
+
+Use `--scenario scaling` to rerun only the Kafka/KEDA regression in a fresh cluster.

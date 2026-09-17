@@ -125,6 +125,18 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(trigger["metadata"]["allowIdleConsumers"], "false")
         self.assertEqual(trigger["authenticationRef"], {"name": "auth"})
 
+    def test_keda_nonzero_ranges_omit_inapplicable_zero_controls(self):
+        values = {**BASE, "gateway": {"autoscaling": {"mode": "keda"}}}
+        docs = self.manifests(values, "--api-versions", "keda.sh/v1alpha1/ScaledObject")
+        spec = docs["ScaledObject", "test-sink-gateway"]["spec"]
+        self.assertNotIn("pollingInterval", spec)
+        self.assertNotIn("cooldownPeriod", spec)
+        values["gateway"]["autoscaling"]["keda"] = {"triggers": [
+            {"type": "prometheus", "useCachedMetrics": True,
+             "metadata": {"serverAddress": "http://prometheus", "query": "sum(queue_depth)", "threshold": "10"}}]}
+        docs = self.manifests(values, "--api-versions", "keda.sh/v1alpha1/ScaledObject")
+        self.assertEqual(docs["ScaledObject", "test-sink-gateway"]["spec"]["pollingInterval"], 30)
+
     def test_metrics_are_separate_from_public_service(self):
         values = {**BASE, "gateway": {"service": {"type": "LoadBalancer"}}, "metrics": {"enabled": True, "serviceMonitor": {"enabled": True}}}
         docs = self.manifests(values, "--api-versions", "monitoring.coreos.com/v1/ServiceMonitor")

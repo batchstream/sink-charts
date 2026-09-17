@@ -39,8 +39,14 @@ spec:
   scaleTargetRef: {name: {{ $name }}}
   minReplicaCount: {{ $a.minReplicas }}
   maxReplicaCount: {{ $a.maxReplicas }}
+  {{- $cached := false }}
+  {{- range $trigger := $a.keda.triggers }}{{- if $trigger.useCachedMetrics }}{{- $cached = true }}{{- end }}{{- end }}
+  {{- if or (eq (int $a.minReplicas) 0) $cached }}
   pollingInterval: {{ $a.keda.pollingInterval }}
+  {{- end }}
+  {{- if eq (int $a.minReplicas) 0 }}
   cooldownPeriod: {{ $a.keda.cooldownPeriod }}
+  {{- end }}
   {{- with $a.keda.fallback }}
   fallback: {{ toYaml . | nindent 4 }}
   {{- end }}

@@ -84,11 +84,13 @@ class Qualification:
     def no_terminating(self):
         return all(not pod["metadata"].get("deletionTimestamp") for pod in self.get("pods")["items"])
 
-    def upgrade(self, values=None, rejection=None):
+    def upgrade(self, values=None, rejection=None, wait=True):
         filename = self.directory / "values.yaml"
         filename.write_text(yaml.safe_dump(self.values if values is None else values))
         args = self.helm + ["upgrade", "--install", "qual", str(ROOT / "charts/sink"), "-n", self.namespace,
-                            "-f", str(filename), "--wait", "--timeout", "15m"]
+                            "-f", str(filename), "--timeout", "15m"]
+        if wait:
+            args.append("--wait")
         result = subprocess.run(args, text=True, capture_output=True)
         if rejection:
             if result.returncode == 0 or rejection not in result.stderr:
@@ -251,14 +253,22 @@ class Qualification:
         self.command(self.kubectl + ["exec", "traffic", "--", "/probe", "-stop"])
         result = self.probe_result("traffic")
         self.log(f"continuous traffic reconciled {result['verified']} records without errors")
+        self.exercise_scaling()
+
+    def exercise_scaling(self):
         self.log("publish Kafka backlog while Worker is zero")
         self.probe("publish", ["-mode", "publish", "-dataset", "async", "-count", "20000"])
         published = self.probe_result("publish")
         worker = self.values["stores"]["mongo"]["worker"]
+        # Hold consumers Pending until lag-driven HPA scaling is observed. This
+        # models node provisioning and avoids a fast backend draining a tiny
+        # backlog before the first HPA sample. No manual replica changes are used.
+        worker["pod"] = {"nodeSelector": {"sink-test-workers": "ready"}}
         worker["autoscaling"] = {"mode": "keda", "minReplicas": 0, "maxReplicas": 3,
                                  "keda": {"pollingInterval": 5, "cooldownPeriod": 30}}
-        self.upgrade()
+        self.upgrade(wait=False)
         self.wait("KEDA scales backlog to multiple consumers", lambda: self.get("deployment", "qual-sink-mongo-worker")["spec"]["replicas"] >= 2, timeout=180)
+        self.command(self.kubectl + ["label", "node", f"{self.cluster}-control-plane", "sink-test-workers=ready"])
         self.wait("multiple Worker Pods become ready", lambda: self.get("deployment", "qual-sink-mongo-worker").get("status", {}).get("readyReplicas", 0) >= 2, timeout=180)
         members = self.command(self.kubectl + ["exec", "deployment/kafka", "--", "/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "kafka:9092", "--describe", "--group", "mongo-workers", "--members", "--verbose"])
         (self.report_dir / "consumer-members.txt").write_text(members)
@@ -304,6 +314,7 @@ class Qualification:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scenario", choices=["all", "scaling"], default="all", help="run the full matrix or only the Kafka/KEDA regression")
     parser.add_argument("--cluster", help="owned sink-chart-* name; defaults to a unique name")
     parser.add_argument("--kubeconfig", help="explicit owned Kind kubeconfig for development reuse; cluster is still deleted")
     args = parser.parse_args()
@@ -314,7 +325,10 @@ def main():
         qualification = Qualification(args, directory)
         try:
             qualification.setup()
-            qualification.exercise()
+            if args.scenario == "scaling":
+                qualification.exercise_scaling()
+            else:
+                qualification.exercise()
             qualification.log("PASS")
         finally:
             qualification.diagnostics()

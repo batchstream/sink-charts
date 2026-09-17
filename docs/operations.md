@@ -209,7 +209,9 @@ Default HPA scale-down allows one Pod per 300s with a 300s stabilization window.
 The period must cover Pod termination grace, limiting overlapping departures.
 Scale-up allows two Pods per minute. Tune scale-up against partition rebalance and
 backend capacity. KEDA `cooldownPeriod` covers **1 -> 0**; HPA behavior governs
-nonzero scaling. KEDA zero transitions and manual replica edits are not protected
+nonzero scaling. `pollingInterval` is emitted for zero activation or cached metrics;
+nonzero HPA fetch cadence is controlled by Kubernetes. Inapplicable zero controls
+are omitted to avoid misleading KEDA settings. KEDA zero transitions and manual replica edits are not protected
 by the HPA scale-down rate. Worker graceful Kafka departure still needs its entire
 termination budget. Choose cooldown longer than routine idle gaps to avoid churn.
 
