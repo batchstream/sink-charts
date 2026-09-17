@@ -8,6 +8,14 @@ the complete configuration for every role. It requires Sink 0.16.0+. The previou
 has been removed. Store map keys remain stable Sink identities; changing a key
 creates a different Store. Only active Stores appear in the Gateway routes.
 
+Common operational values are an abstraction over Sink configuration: listener
+ports, time budgets, Store identity, Kafka policy and credentials are configured
+once and rendered consistently for each role. MongoDB tuning uses
+`metadataField` (default `__sink`), `maxConcurrentWrites` (64), and
+`maxConcurrentGroups` (16). Resource/memory limits, discovery convergence, rolling
+surge and graceful exit have the defaults described below. Advanced tuning remains
+inside values under `runtime`; it never requires a separately maintained config file.
+
 The chart generates ordinary runtime YAML in ConfigMaps. It manages role, Store
 name, listener/metrics addresses, request and shutdown timeouts, and Kafka identity
 from values. `engineDefaults.runtime`, `workerDefaults.runtime`, and their per-Store

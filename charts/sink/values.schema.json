@@ -800,15 +800,15 @@
             "uriSecretRef": {
               "$ref": "#/definitions/secretKeyRef"
             },
-            "metadata_field": {
+            "metadataField": {
               "type": "string",
               "minLength": 1
             },
-            "max_concurrent_writes": {
+            "maxConcurrentWrites": {
               "type": "integer",
               "minimum": 1
             },
-            "max_concurrent_groups": {
+            "maxConcurrentGroups": {
               "type": "integer",
               "minimum": 1
             }

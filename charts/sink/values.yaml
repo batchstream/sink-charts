@@ -177,6 +177,9 @@ workerDefaults:
 #       driver: mongodb
 #       mongodb:
 #         uriSecretRef: {name: orders-mongo-v1, key: uri}
+#         metadataField: __sink
+#         maxConcurrentWrites: 64
+#         maxConcurrentGroups: 16
 #     credentialRevision: "" # Roll both roles after an in-place Secret update.
 #     engine: {runtime: {service: {}, grpc: {}}}
 #     worker: {enabled: false}

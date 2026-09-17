@@ -104,7 +104,10 @@ class ChartTests(unittest.TestCase):
                              "items": [{"key": "uri", "path": "mongodb-uri"}]}}])
             config = yaml.safe_load(docs["ConfigMap", name]["data"]["sink.yaml"])
             self.assertEqual(config["mode"], role)
-            self.assertEqual(config["storage"]["mongodb"], {"uri_file": "/etc/sink-secrets/mongodb-uri"})
+            self.assertEqual(config["storage"]["mongodb"]["uri_file"], "/etc/sink-secrets/mongodb-uri")
+            self.assertEqual(config["storage"]["mongodb"]["metadata_field"], "__sink")
+            self.assertEqual(config["storage"]["mongodb"]["max_concurrent_writes"], 64)
+            self.assertEqual(config["storage"]["mongodb"]["max_concurrent_groups"], 16)
             self.assertEqual(config["storage"]["kafka"]["topic"]["replication_factor"], 3)
             self.assertEqual(config["storage"]["kafka"]["consumer"]["group_id"], KAFKA["consumerGroup"])
             self.assertEqual(config["service"]["request"]["timeout"], "30s")
@@ -123,9 +126,11 @@ class ChartTests(unittest.TestCase):
         for role in ["engine", "worker"]:
             name = f"test-sink-mongo-{role}"
             self.assertNotEqual(rotated["Deployment", name]["spec"]["template"], versioned["Deployment", name]["spec"]["template"])
-        values["stores"]["mongo"]["storage"]["mongodb"]["max_concurrent_writes"] = 32
+        values["stores"]["mongo"]["storage"]["mongodb"]["maxConcurrentWrites"] = 32
         tuned = self.manifests(values)
         name = "test-sink-mongo-engine"
+        config = yaml.safe_load(tuned["ConfigMap", name]["data"]["sink.yaml"])
+        self.assertEqual(config["storage"]["mongodb"]["max_concurrent_writes"], 32)
         self.assertNotEqual(versioned["Deployment", name]["spec"]["template"]["metadata"]["annotations"],
                             tuned["Deployment", name]["spec"]["template"]["metadata"]["annotations"])
 
