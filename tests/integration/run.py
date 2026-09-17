@@ -120,6 +120,10 @@ class Qualification:
             # Reuse is only for an explicitly created disposable cluster during development.
             if self.cluster not in clusters:
                 raise RuntimeError("requested owned Kind cluster does not exist")
+            expected_nodes = set(self.command(["kind", "get", "nodes", "--name", self.cluster]).splitlines())
+            actual_nodes = {node["metadata"]["name"] for node in self.get("nodes")["items"]}
+            if actual_nodes != expected_nodes:
+                raise RuntimeError("kubeconfig does not identify the owned Kind cluster")
             self.owned = True
         else:
             if self.cluster in clusters:
@@ -183,6 +187,7 @@ class Qualification:
         self.log("Engine scale 2 -> 3 -> 2 under traffic")
         self.values["stores"]["mongo"]["engine"]["replicaCount"] = 3
         self.upgrade()
+        self.wait("third Engine becomes discoverable before scale-down", lambda: self.available("qual-sink-mongo-engine"))
         self.values["stores"]["mongo"]["engine"]["replicaCount"] = 2
         self.upgrade()
         self.wait("scaled-down Engine fully terminates", self.no_terminating)
