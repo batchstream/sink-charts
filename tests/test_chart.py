@@ -32,6 +32,46 @@ class ChartTests(unittest.TestCase):
         return {(doc["kind"], doc["metadata"]["name"]): doc
                 for doc in yaml.safe_load_all(result.stdout) if doc}
 
+    def test_role_images_allow_engine_first_upgrade_and_gateway_first_rollback(self):
+        values = copy.deepcopy(BASE)
+        values["stores"]["mongo"].update(kafka=KAFKA, worker={"enabled": True})
+        original = self.manifests(values)
+        new_digest = "sha256:" + "1" * 64
+        values["engineDefaults"] = {"image": {"digest": new_digest}}
+        engines = self.manifests(values)
+        for name in ["test-sink-gateway", "test-sink-mongo-worker"]:
+            self.assertEqual(original["Deployment", name], engines["Deployment", name])
+        engine_pod = engines["Deployment", "test-sink-mongo-engine"]["spec"]["template"]["spec"]
+        self.assertEqual(engine_pod["containers"][0]["image"], "ghcr.io/batchstream/sink@" + new_digest)
+        values["gateway"] = {"image": {"digest": new_digest}}
+        gateways = self.manifests(values)
+        self.assertEqual(engines["Deployment", "test-sink-mongo-engine"], gateways["Deployment", "test-sink-mongo-engine"])
+        gateway_pod = gateways["Deployment", "test-sink-gateway"]["spec"]["template"]["spec"]
+        self.assertEqual(gateway_pod["containers"][0]["image"], engine_pod["containers"][0]["image"])
+        del values["gateway"]
+        self.assertEqual(self.manifests(values), engines)
+        del values["engineDefaults"]
+        self.assertEqual(self.manifests(values), original)
+
+    def test_image_tag_and_digest_precedence_at_each_layer(self):
+        values = copy.deepcopy(BASE)
+        values["engineDefaults"] = {"image": {"digest": "sha256:" + "2" * 64}}
+        values["stores"]["mongo"]["engine"] = {"image": {"tag": "per-store", "pullPolicy": "Always"}}
+        values["stores"]["archive"] = {"storage": STORAGE, "state": "staged"}
+        values["gateway"] = {"image": {"tag": "gateway-only"}}
+        docs = self.manifests(values)
+        expected = {"test-sink-mongo-engine": "ghcr.io/batchstream/sink:per-store",
+                    "test-sink-archive-engine": "ghcr.io/batchstream/sink@sha256:" + "2" * 64,
+                    "test-sink-gateway": "ghcr.io/batchstream/sink:gateway-only"}
+        for name, image in expected.items():
+            self.assertEqual(docs["Deployment", name]["spec"]["template"]["spec"]["containers"][0]["image"], image)
+        self.assertEqual(docs["Deployment", "test-sink-mongo-engine"]["spec"]["template"]["spec"]["containers"][0]["imagePullPolicy"], "Always")
+        values["stores"]["mongo"]["engine"]["image"]["digest"] = "sha256:" + "3" * 64
+        docs = self.manifests(values)
+        self.assertEqual(docs["Deployment", "test-sink-mongo-engine"]["spec"]["template"]["spec"]["containers"][0]["image"], "ghcr.io/batchstream/sink@sha256:" + "3" * 64)
+        values["gateway"]["image"]["digest"] = "invalid"
+        self.assertNotEqual(render(values).returncode, 0)
+
     def test_memory_capacity_is_optional_and_configurable_per_role(self):
         defaults = self.manifests()
         default_config = yaml.safe_load(defaults["ConfigMap", "test-sink-gateway"]["data"]["sink.yaml"])

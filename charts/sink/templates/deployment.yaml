@@ -1,6 +1,7 @@
 {{- range $component := include "sink.components" . | fromJsonArray }}
 {{- $c := merge (dict "root" $) $component }}
 {{- $s := $c.settings }}
+{{- $image := include "sink.componentImage" $c | fromJson }}
 {{- $name := include "sink.componentName" $c }}
 {{- $preStop := include "sink.preStop" $c | int }}
 {{- $readySeconds := int $s.pod.minReadySeconds }}
@@ -79,8 +80,8 @@ spec:
         {{- end }}
       containers:
         - name: sink
-          image: {{ if $.Values.image.digest }}{{ printf "%s@%s" $.Values.image.repository $.Values.image.digest | quote }}{{ else }}{{ printf "%s:%s" $.Values.image.repository $.Values.image.tag | quote }}{{ end }}
-          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          image: {{ if $image.digest }}{{ printf "%s@%s" $image.repository $image.digest | quote }}{{ else }}{{ printf "%s:%s" $image.repository $image.tag | quote }}{{ end }}
+          imagePullPolicy: {{ $image.pullPolicy }}
           args: ["--config", "/etc/sink/sink.yaml"]
           securityContext:
             allowPrivilegeEscalation: false
