@@ -39,6 +39,7 @@ metrics:
 
 # No cluster-wide controllers or backend databases are installed by this chart.
 gateway:
+  image: {} # Overrides global image; roll Engines before advancing the Gateway.
   replicaCount: 2
   service:
     type: ClusterIP
@@ -113,6 +114,7 @@ gateway:
 
 # Stores inherit these defaults. Every nested field can be overridden per Store.
 engineDefaults:
+  image: {} # Per-Store engine.image overrides these fields.
   replicaCount: 2
   runtime: {memory: {}, service: {}, grpc: {}} # Nonsecret per-role tuning only.
   readiness: storage # storage | kafka | process; do not combine dependency restarts with liveness.
@@ -170,6 +172,7 @@ engineDefaults:
   disruptionBudget: {enabled: true, maxUnavailable: 1}
 
 workerDefaults:
+  image: {} # Per-Store worker.image overrides these fields.
   enabled: false # Enable together with the Store's Kafka settings.
   replicaCount: 2
   allowScaleToZero: false # Explicitly accept delayed application while scaled to zero.

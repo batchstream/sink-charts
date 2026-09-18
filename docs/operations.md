@@ -130,6 +130,33 @@ those policies or silently expose a public LoadBalancer by default.
 
 ## Rolling upgrades and DNS
 
+### Staged image upgrades
+
+When a release changes the private forwarding protocol, upgrade every Engine
+before the Gateway. Kubernetes does not order Deployment rollouts inside one
+Helm upgrade. Sink builds using `ForwardStream` cannot call a v0.16.0 Engine;
+old Gateways can call the retained unary endpoint on new Engines.
+
+Keep the global `image` pinned to the current release. In the first values
+revision, set `engineDefaults.image.digest` to the new release digest and apply
+that revision. Wait for all Engine Deployments to finish and for old Engine Pods
+to exit. Include any per-Store `engine.image` pins when advancing versions.
+In a second revision, set `gateway.image.digest` to that same digest. Workers
+can be advanced with `workerDefaults.image.digest` according to the release's
+queue compatibility requirements. Keep these pins in the full values file used
+by subsequent upgrades.
+
+Image fields inherit in this order: global `image`, role defaults, then per-Store
+overrides. A role or Store `tag` without `digest` clears the inherited digest;
+supplying both retains digest precedence. Prefer immutable digests in production.
+
+For rollback, first restore the Gateway image and wait for all new Gateway Pods
+to exit, then restore Engines. Apply two explicit values revisions; a single
+`helm rollback` changing all images cannot enforce this order. Store lifecycle
+transition checks still apply independently.
+
+### Drain timing
+
 The defaults encode the measured failure mechanism from Sink's qualification:
 a Gateway captures Engine membership for an accepted batch, so removing an endpoint
 from DNS alone does not make it safe to close its listener.

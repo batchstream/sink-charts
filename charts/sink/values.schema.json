@@ -228,6 +228,9 @@
               "$ref": "#/definitions/memoryCapacity"
             }
           }
+        },
+        "image": {
+          "$ref": "#/definitions/imageOverride"
         }
       }
     },
@@ -776,6 +779,9 @@
               "$ref": "#/definitions/memoryCapacity"
             }
           }
+        },
+        "image": {
+          "$ref": "#/definitions/imageOverride"
         }
       }
     },
@@ -816,6 +822,9 @@
               "$ref": "#/definitions/memoryCapacity"
             }
           }
+        },
+        "image": {
+          "$ref": "#/definitions/imageOverride"
         }
       }
     },
@@ -1042,6 +1051,32 @@
         "wait_timeout": {
           "type": "string",
           "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+        }
+      }
+    },
+    "imageOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 0,
+          "pattern": "^(sha256:[a-f0-9]{64})?$"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
         }
       }
     }

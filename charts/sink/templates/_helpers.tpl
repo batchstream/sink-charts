@@ -34,6 +34,25 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- if $active -}}{{- $items = prepend $items (dict "role" "gateway" "store" "" "settings" .Values.gateway "kafka" dict) -}}{{- end -}}
 {{- toJson $items -}}
 {{- end -}}
+{{- define "sink.componentImage" -}}
+{{- $layers := list .root.Values.image -}}
+{{- if eq .role "gateway" -}}
+{{- $layers = append $layers (default dict .root.Values.gateway.image) -}}
+{{- else -}}
+{{- $defaults := index .root.Values (printf "%sDefaults" .role) -}}
+{{- $store := index .root.Values.stores .store -}}
+{{- $layers = append $layers (default dict $defaults.image) -}}
+{{- $layers = append $layers (dig .role "image" dict $store) -}}
+{{- end -}}
+{{- $image := dict -}}
+{{- range $layer := $layers -}}
+{{- if and (hasKey $layer "tag") (not (hasKey $layer "digest")) -}}
+{{- $_ := set $image "digest" "" -}}
+{{- end -}}
+{{- $image = mergeOverwrite $image (deepCopy $layer) -}}
+{{- end -}}
+{{- toJson $image -}}
+{{- end -}}
 {{- define "sink.discoverySeconds" -}}
 {{- $d := .Values.discovery -}}
 {{- add $d.endpointPublicationSeconds $d.dnsCacheSeconds $d.dnsRefreshSeconds $d.lookupBackoffSeconds -}}

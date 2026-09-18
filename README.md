@@ -6,7 +6,7 @@ configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
 One release deploys a Sink cluster: a shared Gateway and independently configured
-Engine and Worker Deployments for each Store. Chart `0.4.0` generates runtime
+Engine and Worker Deployments for each Store. Chart `0.5.0` generates runtime
 configuration and references individual credential keys in external Secrets. It targets Sink **0.16.0**, SDK **0.8.0**, and
 Kubernetes **1.30+** with native lifecycle sleep hooks enabled.
 
