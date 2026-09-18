@@ -1,0 +1,43 @@
+# Requires a Sink image with demand-based memory admission (after 0.16.0).
+# Overlay cluster-values.yaml. Update Prometheus namespace/job selectors to the
+# actual Gateway scrape target. Upgrade Engines before Gateways.
+gateway:
+  runtime:
+    memory:
+      burst_percent: 10
+      wait_timeout: 2s
+  autoscaling:
+    mode: keda
+    minReplicas: 2
+    maxReplicas: 12
+    keda:
+      triggers:
+        - type: prometheus
+          metricType: Value # Fleet ratio: do not divide by replicas again.
+          metadata:
+            serverAddress: http://prometheus.monitoring.svc:9090
+            threshold: "0.75"
+            ignoreNullValues: "false"
+            query: >-
+              (
+                (sum(sink_memory_used_bytes{namespace="sink",job="sink-gateway",role="gateway"})
+                 + sum(sink_memory_waiting_bytes{namespace="sink",job="sink-gateway",role="gateway"}))
+                / sum(sink_memory_capacity_bytes{namespace="sink",job="sink-gateway",role="gateway",pool="normal"})
+              )
+              and on() (min(up{namespace="sink",job="sink-gateway"}) == 1)
+              and on() (count(sink_memory_capacity_bytes{namespace="sink",job="sink-gateway",role="gateway",pool="normal"})
+                        == count(up{namespace="sink",job="sink-gateway"}))
+        - type: prometheus
+          metricType: Value
+          metadata:
+            serverAddress: http://prometheus.monitoring.svc:9090
+            threshold: "0.02"
+            ignoreNullValues: "false"
+            query: >-
+              (
+                sum(rate(sink_memory_rejected_total{namespace="sink",job="sink-gateway",role="gateway",phase="request",reason="busy"}[1m]))
+                / clamp_min(
+                  sum(rate(sink_memory_admitted_total{namespace="sink",job="sink-gateway",role="gateway",phase="request"}[1m]))
+                  + sum(rate(sink_memory_rejected_total{namespace="sink",job="sink-gateway",role="gateway",phase="request",reason="busy"}[1m])), 1)
+              )
+              and on() (min(up{namespace="sink",job="sink-gateway"}) == 1)

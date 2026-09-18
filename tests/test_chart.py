@@ -32,6 +32,24 @@ class ChartTests(unittest.TestCase):
         return {(doc["kind"], doc["metadata"]["name"]): doc
                 for doc in yaml.safe_load_all(result.stdout) if doc}
 
+    def test_memory_capacity_is_optional_and_configurable_per_role(self):
+        defaults = self.manifests()
+        default_config = yaml.safe_load(defaults["ConfigMap", "test-sink-gateway"]["data"]["sink.yaml"])
+        self.assertNotIn("memory", default_config)
+        values = copy.deepcopy(BASE)
+        values["gateway"] = {"runtime": {"memory": {"burst_percent": 15}}}
+        values["engineDefaults"] = {"runtime": {"memory": {"max_bytes": "256MiB", "burst_percent": 10}}}
+        values["stores"]["mongo"]["engine"] = {"runtime": {"memory": {"wait_timeout": "500ms"}}}
+        docs = self.manifests(values)
+        gateway = yaml.safe_load(docs["ConfigMap", "test-sink-gateway"]["data"]["sink.yaml"])
+        engine = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-engine"]["data"]["sink.yaml"])
+        gateway_expected = {"burst_percent": 15}
+        self.assertEqual(gateway["memory"], gateway_expected)
+        engine_expected = {"max_bytes": "256MiB", "burst_percent": 10, "wait_timeout": "500ms"}
+        self.assertEqual(engine["memory"], engine_expected)
+        values["gateway"]["runtime"]["memory"]["burst_percent"] = 100
+        self.assertNotEqual(render(values).returncode, 0)
+
     def test_empty_and_staged_cluster(self):
         empty = self.manifests({})
         self.assertEqual(list(empty), [("ConfigMap", "test-sink-inventory")])
@@ -350,6 +368,8 @@ class ChartTests(unittest.TestCase):
         self.assertNotEqual(render(values).returncode, 0)
 
     def test_examples(self):
+        values = {}
+        self.manifests(values, "-f", str(ROOT / "examples/cluster-values.yaml"), "-f", str(ROOT / "examples/memory-keda-values.yaml"), "--api-versions", "keda.sh/v1alpha1/ScaledObject")
         self.manifests({}, "-f", str(ROOT / "examples/search-values.yaml"))
         self.manifests({}, "-f", str(ROOT / "examples/cluster-values.yaml"))
         self.manifests({}, "-f", str(ROOT / "examples/cluster-values.yaml"), "-f", str(ROOT / "examples/keda-values.yaml"), "--api-versions", "keda.sh/v1alpha1/ScaledObject")

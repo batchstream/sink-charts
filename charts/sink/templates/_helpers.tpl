@@ -72,7 +72,9 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- $gateway := mergeOverwrite (deepCopy .Values.gateway.runtime.gateway) (dict "routes" $routes "dns_refresh_interval" (printf "%ds" (int .Values.discovery.dnsRefreshSeconds))) -}}
 {{- $service := mergeOverwrite (deepCopy .Values.gateway.runtime.service) (dict "request" (dict "timeout" (printf "%ds" (int .Values.requestTimeoutSeconds)))) -}}
 {{- $grpc := mergeOverwrite (deepCopy .Values.gateway.runtime.grpc) (dict "address" ":8080") -}}
-{{- toYaml (dict "mode" "gateway" "gateway" $gateway "service" $service "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .Values.gateway.pod.shutdownTimeoutSeconds))) -}}
+{{- $config := (dict "mode" "gateway" "gateway" $gateway "service" $service "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .Values.gateway.pod.shutdownTimeoutSeconds))) -}}
+{{- with .Values.gateway.runtime.memory -}}{{- $_ := set $config "memory" . -}}{{- end -}}
+{{- toYaml $config -}}
 {{- end -}}
 {{- define "sink.behavior" -}}
 {{ toYaml .behavior }}

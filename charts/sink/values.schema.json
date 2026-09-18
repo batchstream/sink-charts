@@ -223,6 +223,9 @@
             },
             "grpc": {
               "type": "object"
+            },
+            "memory": {
+              "$ref": "#/definitions/memoryCapacity"
             }
           }
         }
@@ -768,6 +771,9 @@
             },
             "grpc": {
               "type": "object"
+            },
+            "memory": {
+              "$ref": "#/definitions/memoryCapacity"
             }
           }
         }
@@ -805,6 +811,9 @@
             },
             "grpc": {
               "type": "object"
+            },
+            "memory": {
+              "$ref": "#/definitions/memoryCapacity"
             }
           }
         }
@@ -1008,6 +1017,33 @@
         "scaleUp",
         "scaleDown"
       ]
+    },
+    "memoryCapacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_bytes": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1024
+            },
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+            }
+          ]
+        },
+        "burst_percent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "wait_timeout": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+        }
+      }
     }
   }
 }
