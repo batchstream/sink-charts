@@ -87,3 +87,22 @@ make check PYTHON=.venv/bin/python
 Rendering tests are offline. `make integration` is an explicit Docker/Kind test;
 see [tests/integration](tests/integration/README.md). CI also checks Kubernetes
 schemas and complete example configurations against the pinned Sink image.
+
+### Demand-based memory admission
+
+Images that include the demand-based memory allocator (after Sink 0.16.0) accept
+`gateway.runtime.memory`, `engineDefaults.runtime.memory`, and
+`workerDefaults.runtime.memory`, with per-Store overrides under each role.
+The map supports `max_bytes`, `burst_percent` (1–99), and `wait_timeout`.
+Leave it empty for server automatic sizing and its measured 10% reserve default.
+Empty maps are omitted from generated YAML so the chart remains compatible with
+its pinned older image. Do not enable these fields on an older image.
+
+[The memory KEDA overlay](examples/memory-keda-values.yaml) supplies managed-capacity
+pressure and temporary-rejection signals with `metricType: Value`. Install KEDA,
+configure Prometheus scraping and adjust job/namespace selectors to one Gateway
+Deployment before enabling it. Engine selectors must also isolate the Store;
+Workers should retain Kafka lag triggers. Missing metrics must remain a scaler
+error rather than zero load. Upgrade Engines before Gateways for the private
+framed-response protocol; roll back Gateways first. This example does not change
+the pinned image or perform a cluster rollout.
