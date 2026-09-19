@@ -141,6 +141,9 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(config["logging"]["otlp"]["batch_size"], 8)
         values["stores"]["mongo"]["engine"]["runtime"]["logging"]["otlp"]["enabled"] = False
         self.assertIn("logging requires console or OTLP", render(values).stderr)
+        values["engineDefaults"]["runtime"]["logging"]["console"]["enabled"] = True
+        values["stores"]["mongo"]["engine"]["runtime"]["logging"]["otlp"]["endpoint"] = ""
+        self.manifests(values)
 
     def test_logging_shutdown_budget_includes_exporter_flush(self):
         values = copy.deepcopy(BASE)
