@@ -305,7 +305,9 @@ class ChartTests(unittest.TestCase):
             self.assertEqual(shared["storage"]["mongodb"]["uri_file"], "/etc/sink-secrets/mongodb-uri")
             self.assertNotIn("max_concurrent_writes", shared["storage"]["mongodb"])
             self.assertNotIn("consumer", shared["kafka"])
-            self.assertEqual(shared["kafka"]["topic"]["replication_factor"], 3)
+            self.assertEqual(shared["kafka"]["replication_factor"], 3)
+            self.assertEqual(shared["kafka"]["min_insync_replicas"], 1)
+            self.assertEqual(shared["kafka"]["topic"], {"name": "mongo"})
             configs.append(shared)
         self.assertEqual(*configs)
         gateway = docs["Deployment", "test-sink-gateway"]
@@ -537,8 +539,28 @@ class ChartTests(unittest.TestCase):
             values["stores"]["archive"] = {"state": "staged", "storage": STORAGE, "kafka": kafka}
             self.assertNotEqual(render(values).returncode, 0)
         values = copy.deepcopy(BASE)
-        values["stores"]["mongo"]["kafka"] = {**KAFKA, "runtime": {"dead_letter": {"topic": "mongo"}}}
+        values["stores"]["mongo"]["kafka"] = {**KAFKA, "runtime": {"dead_letter": {"name": "mongo"}}}
         self.assertNotEqual(render(values).returncode, 0)
+
+    def test_shared_kafka_policy_and_independent_topics(self):
+        values = copy.deepcopy(BASE)
+        values["stores"]["mongo"]["kafka"] = {
+            **KAFKA, "replicationFactor": 3, "minInSyncReplicas": 2,
+            "runtime": {"max_record_bytes": "2MiB", "topic": {"retention": "48h"},
+                        "dead_letter": {"name": "rejected", "retention": "240h"}},
+        }
+        docs = self.manifests(values)
+        shared = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-store"]["data"]["store.yaml"])
+        self.assertEqual(shared["kafka"]["replication_factor"], 3)
+        self.assertEqual(shared["kafka"]["min_insync_replicas"], 2)
+        self.assertEqual(shared["kafka"]["max_record_bytes"], "2MiB")
+        self.assertEqual(shared["kafka"]["topic"], {"name": "mongo", "retention": "48h"})
+        self.assertEqual(shared["kafka"]["dead_letter"], {"name": "rejected", "retention": "240h"})
+        for runtime in [{"topic": {"partitions": 4}}, {"topic": {"replication_factor": 2}},
+                        {"topic": {"min_insync_replicas": 1}}, {"topic": {"max_record_bytes": "2MiB"}},
+                        {"dead_letter": {"topic": "rejected"}}]:
+            values["stores"]["mongo"]["kafka"] = {**KAFKA, "runtime": runtime}
+            self.assertNotEqual(render(values).returncode, 0)
 
     def test_examples(self):
         values = {}

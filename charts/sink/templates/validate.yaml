@@ -58,10 +58,10 @@
 {{- if and $s.apiKeySecretRef $basic -}}{{- fail "search apiKeySecretRef cannot be combined with basic authentication" -}}{{- end -}}
 {{- end -}}
 {{- with $settings.kafka -}}
-{{- if gt (int (default 2 .minInSyncReplicas)) (int (default 3 .replicationFactor)) -}}{{- fail "Kafka minInSyncReplicas cannot exceed replicationFactor" -}}{{- end -}}
+{{- if gt (int (default 1 .minInSyncReplicas)) (int (default 3 .replicationFactor)) -}}{{- fail "Kafka minInSyncReplicas cannot exceed replicationFactor" -}}{{- end -}}
 {{- $runtime := default dict .runtime -}}
 {{- $topic := default dict $runtime.topic -}}
-{{- if or (hasKey $topic "name") (hasKey $topic "partitions") (hasKey $topic "replication_factor") (hasKey $topic "min_insync_replicas") -}}{{- fail "Kafka identity and replication policy are chart-managed" -}}{{- end -}}
+{{- if or (hasKey $topic "name") (hasKey $runtime "partitions") (hasKey $runtime "replication_factor") (hasKey $runtime "min_insync_replicas") -}}{{- fail "Kafka identity and replication policy are chart-managed" -}}{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- range $component := include "sink.components" . | fromJsonArray -}}

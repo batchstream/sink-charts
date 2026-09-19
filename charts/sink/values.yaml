@@ -246,5 +246,5 @@ workerDefaults:
 #     engine: {runtime: {execution: {mongodb: {max_concurrent_writes: 64}}}}
 #     worker: {enabled: false}
 # Add kafka metadata to enable async delivery; defaults: replicationFactor=3,
-# minInSyncReplicas=2. kafka.runtime carries additional nonsecret Kafka tuning.
+# minInSyncReplicas=1. kafka.runtime carries additional nonsecret Kafka tuning.
 stores: {}

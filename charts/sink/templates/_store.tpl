@@ -34,7 +34,7 @@
 {{- $config := dict "name" .store "storage" $storage -}}
 {{- if .kafka -}}
 {{- $kafka := deepCopy (default dict .kafka.runtime) -}}
-{{- $managed := dict "enabled" true "brokers" .kafka.brokers "topic" (dict "name" .kafka.topic "partitions" .kafka.partitions "replication_factor" (default 3 .kafka.replicationFactor) "min_insync_replicas" (default 2 .kafka.minInSyncReplicas)) -}}
+{{- $managed := dict "enabled" true "brokers" .kafka.brokers "partitions" .kafka.partitions "replication_factor" (default 3 .kafka.replicationFactor) "min_insync_replicas" (default 1 .kafka.minInSyncReplicas) "topic" (dict "name" .kafka.topic) -}}
 {{- $_ := set $config "kafka" (mergeOverwrite $kafka $managed) -}}
 {{- end -}}
 {{- toYaml $config -}}

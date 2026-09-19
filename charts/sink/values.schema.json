@@ -352,10 +352,40 @@
                   "additionalProperties": false,
                   "properties": {
                     "topic": {
-                      "type": "object"
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "retention": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
                     },
                     "dead_letter": {
-                      "type": "object"
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "retention": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "max_record_bytes": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*(B|KiB|MiB|GiB)?$"
+                        }
+                      ]
                     }
                   }
                 }

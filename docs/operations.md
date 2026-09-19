@@ -33,7 +33,10 @@ roll both. Gateway mounts only its own configuration.
 `runtime.execution` and `runtime.consumer` tune Worker. Only Gateway accepts
 `runtime.request.max_operations` and `runtime.forwarding`. Worker memory exposes
 only `max_bytes`. Kafka brokers, Topic/DLQ and replication policy stay shared;
-`kafka.runtime` contains only `topic` and `dead_letter`. Worker group belongs to
+`kafka.runtime` accepts `max_record_bytes`, `topic.retention`, and
+`dead_letter.name`/`dead_letter.retention`. Partitions, replication factor, minimum
+ISR (default `1`), and record size apply to both Topics; generated Store YAML places
+these shared settings directly under `kafka`. Worker group belongs to
 `stores.<name>.worker.runtime.consumer.group_id`, which KEDA also uses.
 
 ## Store credentials
