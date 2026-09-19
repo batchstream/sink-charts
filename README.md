@@ -88,9 +88,10 @@ stores:
 Set `gateway.runtime.logging`, `engineDefaults.runtime.logging`, and
 `workerDefaults.runtime.logging`. Store-specific `stores.<name>.engine.runtime.logging`
 and `stores.<name>.worker.runtime.logging` merge into their role defaults, including
-nested component levels, labels and OTLP settings. Explicit `false` overrides are
-preserved. Empty maps omit the section and retain Sink's warn-level JSON stderr
-defaults with OTLP disabled; keep them empty on images older than Sink 0.18.0.
+nested labels and OTLP settings. Explicit `false` overrides are preserved.
+`logging.level` applies to all components. Empty maps omit the section and retain
+the selected Sink image's logging defaults with OTLP disabled; keep them empty on
+images older than Sink 0.18.0. The logging overlay explicitly selects text output.
 
 The [logging overlay](examples/logging-values.yaml) documents every supported
 field and can be applied after `cluster-values.yaml`. Replace its Collector

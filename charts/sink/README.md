@@ -63,7 +63,8 @@ settings empty on roles still running 0.16.0.
 Configure `gateway.runtime.logging`, `engineDefaults.runtime.logging`, and
 `workerDefaults.runtime.logging`, with nested overrides at
 `stores.<name>.engine.runtime.logging` / `worker.runtime.logging`.
-Empty maps preserve Sink's warn-level JSON stderr defaults and keep OTLP disabled.
+Empty maps preserve the selected Sink image's logging defaults and keep OTLP disabled.
+The logging overlay explicitly selects text output; `logging.level` applies to all components.
 Nonempty logging settings require Sink 0.18+; leave them empty on older image
 overrides. All fields are shown in the [logging overlay](https://github.com/batchstream/sink-charts/blob/v0.7.0/examples/logging-values.yaml).
 Use an existing Collector for OTLP; the chart does not install one. TLS is enabled

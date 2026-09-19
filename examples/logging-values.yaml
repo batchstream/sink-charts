@@ -4,8 +4,7 @@ gateway:
   runtime:
     logging: &logging
       level: warn
-      components: {runtime: info}
-      console: {enabled: true, format: json}
+      console: {enabled: true, format: text}
       labels: {environment: production, cluster: example-cluster}
       failure_body: false
       max_body_bytes: 16KiB
@@ -25,9 +24,3 @@ engineDefaults:
 workerDefaults:
   runtime:
     logging: *logging
-stores:
-  mongo:
-    worker:
-      runtime:
-        logging:
-          components: {kafka: info}
