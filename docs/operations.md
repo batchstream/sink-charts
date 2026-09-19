@@ -39,6 +39,14 @@ ISR (default `1`), and record size apply to both Topics; generated Store YAML pl
 these shared settings directly under `kafka`. Worker group belongs to
 `stores.<name>.worker.runtime.consumer.group_id`, which KEDA also uses.
 
+Empty `engineDefaults.runtime.batching` inherits Sink's measured starting values:
+`max_operations: 32` and `max_wait: 2ms`. `memory.burst_percent` remains `10`.
+The Chart does not emit duplicate overrides for these runtime defaults. Tune a
+Store through `stores.<name>.engine.runtime.batching`; the 32-operation batch
+target does not change Gateway's 1,000-operation public request limit. See
+[default selection](https://github.com/batchstream/sink/blob/main/docs/batching.md#default-selection)
+for the benchmark evidence and workload limits.
+
 ## Store credentials
 
 Provision Secrets externally in the **release namespace**, using a secret manager,

@@ -116,6 +116,7 @@ gateway:
 engineDefaults:
   image: {} # Per-Store engine.image overrides these fields.
   replicaCount: 2
+  # Inherit Sink defaults: batching max_operations=32, max_wait=2ms; memory burst_percent=10.
   runtime: {logging: {}, memory: {}, execution: {}, batching: {}, producer: {}, grpc: {}} # Per-Engine tuning.
   readiness: storage # storage | kafka | process; do not combine dependency restarts with liveness.
   pod:
