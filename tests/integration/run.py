@@ -15,6 +15,8 @@ from urllib.parse import quote
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+UPGRADE_IMAGE = "ghcr.io/batchstream/sink:0.17.0"
+
 NODE = "kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0"
 
 
@@ -77,8 +79,11 @@ class Qualification:
         self.log(description)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if self.traffic_active and self.get("pod", "traffic")["status"].get("phase") == "Failed":
-                raise RuntimeError(self.command(self.kubectl + ["logs", "traffic"]))
+            if self.traffic_active:
+                phase = self.get("pod", "traffic")["status"].get("phase")
+                if phase in ("Failed", "Succeeded"):
+                    raise RuntimeError("continuous traffic stopped before the scenario completed: " +
+                                       self.command(self.kubectl + ["logs", "traffic"]))
             if predicate():
                 return
             time.sleep(3)
@@ -162,7 +167,7 @@ class Qualification:
         self.log("owned CoreDNS positive cache enabled with 30-second TTL")
         # Reuse local public image cache without downloading or deleting shared images.
         cached = []
-        for image in [self.args.sink_image or "ghcr.io/batchstream/sink:0.16.0", "mongo:8.2", "apache/kafka:4.2.1",
+        for image in [self.args.sink_image or "ghcr.io/batchstream/sink:0.16.0", self.args.upgrade_image, "mongo:8.2", "apache/kafka:4.2.1",
                       "ghcr.io/kedacore/keda:2.20.0", "ghcr.io/kedacore/keda-metrics-apiserver:2.20.0",
                       "ghcr.io/kedacore/keda-admission-webhooks:2.20.0"]:
             inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
@@ -300,9 +305,70 @@ class Qualification:
         self.upgrade()
         self.log("Store staged -> active -> retiring -> removed without disrupting mongo")
         self.command(self.kubectl + ["exec", "traffic", "--", "/probe", "-stop"])
+        self.traffic_active = False
         result = self.probe_result("traffic")
         self.log(f"continuous traffic reconciled {result['verified']} records without errors")
         self.exercise_scaling()
+
+    def exercise_upgrades(self):
+        old_image = self.get("deployment", "qual-sink-gateway")["spec"]["template"]["spec"]["containers"][0]["image"]
+        new_image = self.args.upgrade_image
+        if old_image == new_image:
+            raise RuntimeError("mixed-version qualification requires two distinct images")
+        repository, tag = new_image.rsplit(":", 1)
+        target = {"repository": repository, "tag": tag, "digest": ""}
+        self.values["stores"]["mongo"]["worker"]["replicaCount"] = 1
+        self.upgrade()
+        self.wait("old-version Worker is ready", lambda: self.available("qual-sink-mongo-worker"))
+        self.probe("traffic", ["-dataset", "version-rollout", "-duration", "40m"])
+        self.traffic_active = True
+        self.wait("persistent version-rollout client starts", lambda: self.get("pod", "traffic")["status"].get("phase") == "Running")
+        self.log(f"qualifying {old_image} -> {new_image} -> {old_image}; Worker retains old image")
+        stages = [
+            ("engine-upgrade", "engineDefaults", target),
+            ("gateway-upgrade", "gateway", target),
+            ("gateway-rollback", "gateway", None),
+            ("engine-rollback", "engineDefaults", None),
+        ]
+        evidence = []
+        for stage, role, image in stages:
+            if image is None:
+                self.values[role].pop("image", None)
+            else:
+                self.values[role]["image"] = image
+            self.log(stage)
+            self.upgrade()
+            self.wait(f"{stage} completes discovery withdrawal and drain", self.no_terminating)
+            actual = {}
+            for name in ["qual-sink-gateway", "qual-sink-mongo-engine", "qual-sink-mongo-worker"]:
+                deployment = self.get("deployment", name)
+                if not self.available(name):
+                    raise RuntimeError(f"{stage}: incomplete rollout for {name}")
+                actual[name] = deployment["spec"]["template"]["spec"]["containers"][0]["image"]
+            expected_gateway = new_image if stage == "gateway-upgrade" else old_image
+            expected_engine = old_image if stage == "engine-rollback" else new_image
+            expected = {"qual-sink-gateway": expected_gateway, "qual-sink-mongo-engine": expected_engine,
+                        "qual-sink-mongo-worker": old_image}
+            if actual != expected:
+                raise RuntimeError(f"{stage}: wrong version combination: {actual}, expected {expected}")
+            self.probe(f"{stage}-sync", ["-dataset", stage, "-duration", "3s"])
+            synchronous = self.probe_result(f"{stage}-sync")
+            if synchronous["verified"] < 1:
+                raise RuntimeError(f"{stage}: no synchronous operations ran")
+            self.probe(f"{stage}-publish", ["-mode", "publish", "-dataset", f"{stage}-async", "-count", "100"])
+            published = self.probe_result(f"{stage}-publish")
+            self.probe(f"{stage}-verify", ["-mode", "verify", "-dataset", f"{stage}-async", "-count", "100"])
+            applied = self.probe_result(f"{stage}-verify")
+            if published["acknowledged"] != 100 or applied["verified"] != 100:
+                raise RuntimeError(f"{stage}: asynchronous records did not reconcile")
+            evidence.append({"stage": stage, "images": actual, "sync": synchronous, "async": applied})
+            (self.report_dir / "version-matrix.json").write_text(json.dumps(evidence, indent=2))
+        self.command(self.kubectl + ["exec", "traffic", "--", "/probe", "-stop"])
+        self.traffic_active = False
+        continuous = self.probe_result("traffic")
+        if continuous["verified"] < 1:
+            raise RuntimeError("no continuous upgrade traffic ran")
+        self.log(f"all version combinations reconciled; continuous records={continuous['verified']}")
 
     def exercise_scaling(self):
         self.log("publish Kafka backlog while Worker is zero")
@@ -369,7 +435,8 @@ class Qualification:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sink-image", help="explicit local candidate repository:tag; loaded into the owned cluster")
-    parser.add_argument("--scenario", choices=["all", "scaling"], default="all", help="run the full matrix or only the Kafka/KEDA regression")
+    parser.add_argument("--scenario", choices=["all", "scaling", "upgrades"], default="all", help="run deployment, Kafka/KEDA, or mixed-version qualification")
+    parser.add_argument("--upgrade-image", default=UPGRADE_IMAGE, help="target repository:tag for the upgrades scenario")
     parser.add_argument("--cluster", help="owned sink-chart-* name; defaults to a unique name")
     parser.add_argument("--kubeconfig", help="explicit owned Kind kubeconfig for development reuse; cluster is still deleted")
     args = parser.parse_args()
@@ -382,6 +449,8 @@ def main():
             qualification.setup()
             if args.scenario == "scaling":
                 qualification.exercise_scaling()
+            elif args.scenario == "upgrades":
+                qualification.exercise_upgrades()
             else:
                 qualification.exercise()
             qualification.log("PASS")
