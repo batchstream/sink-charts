@@ -41,7 +41,7 @@ jobs:
       - name: Check complete configurations with released Sink
         run: python tests/check_runtime.py
 
-  integration:
+  qualification:
     name: Kubernetes qualification (${{ matrix.scenario }})
     strategy:
       fail-fast: false
@@ -74,3 +74,13 @@ jobs:
           name: kubernetes-qualification-${{ matrix.scenario }}
           path: .reports/
           include-hidden-files: true
+
+  integration:
+    if: always()
+    needs: qualification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both Kubernetes qualification scenarios
+        env:
+          RESULT: ${{ needs.qualification.result }}
+        run: test "$RESULT" = success
