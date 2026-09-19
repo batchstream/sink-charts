@@ -1,5 +1,6 @@
 HELM ?= helm
 PYTHON ?= python3
+SCENARIO ?= all
 CHART := charts/sink
 
 .PHONY: lint test package check integration
@@ -17,4 +18,4 @@ check: lint test package
 
 # Explicit opt-in: creates and destroys its own local Kind cluster.
 integration:
-	$(PYTHON) tests/integration/run.py
+	$(PYTHON) tests/integration/run.py --scenario $(SCENARIO)

@@ -41,7 +41,12 @@ jobs:
       - name: Check complete configurations with released Sink
         run: python tests/check_runtime.py
 
-  integration:
+  qualification:
+    name: Kubernetes qualification (${{ matrix.scenario }})
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [all, upgrades]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -61,11 +66,21 @@ jobs:
           python -m pip install -r requirements-dev.txt
           go install sigs.k8s.io/kind@v0.33.0
       - name: Qualify rollouts, Store lifecycle and KEDA with business traffic
-        run: make integration
+        run: make integration SCENARIO=${{ matrix.scenario }}
       - name: Preserve qualification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: kubernetes-qualification
+          name: kubernetes-qualification-${{ matrix.scenario }}
           path: .reports/
           include-hidden-files: true
+
+  integration:
+    if: always()
+    needs: qualification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both Kubernetes qualification scenarios
+        env:
+          RESULT: ${{ needs.qualification.result }}
+        run: test "$RESULT" = success

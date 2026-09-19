@@ -53,3 +53,21 @@ Use `--scenario scaling` to rerun only the Kafka/KEDA regression in a fresh clus
 
 Use `--sink-image repository:tag` to qualify an explicitly built local candidate.
 Only the disposable test cluster loads that image. Default runs use the pinned release.
+
+## Mixed-version upgrades
+
+CI also runs `make integration SCENARIO=upgrades` in a separate disposable Kind
+cluster. The checked pair is Sink 0.16.0 → 0.17.0 → 0.16.0, covering the private
+unary-to-streaming forwarding transition. Engines upgrade first, then Gateways;
+rollback restores Gateways before Engines. A 0.16.0 Worker remains active to
+check Kafka compatibility with each Engine version. Every stage waits for old
+Pods to terminate, records the actual deployment image combination, and verifies
+fresh synchronous and asynchronous records. A persistent SDK client continues
+creating and reading throughout all four rollouts without mutation retries;
+its complete acknowledged history is reconciled at the end. Premature traffic
+completion fails the scenario rather than silently skipping later transitions.
+
+Evidence includes `version-matrix.json`, per-stage business reports and the
+continuous traffic report. The matrix establishes this explicit version pair,
+not arbitrary cross-version compatibility. `--sink-image` and `--upgrade-image`
+can qualify another explicit pair; maintain the documented compatibility order.
