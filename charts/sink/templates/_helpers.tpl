@@ -59,11 +59,11 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- end -}}
 {{- define "sink.preStop" -}}
 {{- $minimum := 0 -}}
-{{- if eq .role "engine" -}}{{- $minimum = add (include "sink.discoverySeconds" .root | int) .root.Values.requestTimeoutSeconds .root.Values.discovery.safetyMarginSeconds -}}{{- end -}}
-{{- if eq .role "gateway" -}}{{- $minimum = add .root.Values.discovery.clientWithdrawalSeconds .root.Values.requestTimeoutSeconds .root.Values.discovery.safetyMarginSeconds -}}{{- end -}}
+{{- if eq .role "engine" -}}{{- $minimum = add (include "sink.discoverySeconds" .root | int) .root.Values.discovery.safetyMarginSeconds -}}{{- end -}}
+{{- if eq .role "gateway" -}}{{- $minimum = add .root.Values.discovery.clientWithdrawalSeconds .root.Values.discovery.safetyMarginSeconds -}}{{- end -}}
 {{- $seconds := $minimum -}}
 {{- if ne .settings.pod.preStopSeconds nil -}}{{- $seconds = int .settings.pod.preStopSeconds -}}{{- end -}}
-{{- if lt (int $seconds) (int $minimum) -}}{{- fail (printf "%s/%s preStopSeconds must be >= %d (discovery + request + margin)" .role .store $minimum) -}}{{- end -}}
+{{- if lt (int $seconds) (int $minimum) -}}{{- fail (printf "%s/%s preStopSeconds must be >= %d (discovery + margin)" .role .store $minimum) -}}{{- end -}}
 {{- $seconds -}}
 {{- end -}}
 {{- define "sink.grace" -}}
@@ -88,10 +88,10 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- $routes = append $routes (dict "store" $store "target" (printf "dns:///%s.%s.svc.%s:8080" $name $.Release.Namespace $.Values.clusterDomain) "tls" (dict "insecure" true)) -}}
 {{- end -}}
 {{- end -}}
-{{- $gateway := mergeOverwrite (deepCopy .Values.gateway.runtime.gateway) (dict "routes" $routes "dns_refresh_interval" (printf "%ds" (int .Values.discovery.dnsRefreshSeconds))) -}}
-{{- $service := mergeOverwrite (deepCopy .Values.gateway.runtime.service) (dict "request" (dict "timeout" (printf "%ds" (int .Values.requestTimeoutSeconds)))) -}}
+{{- $gateway := mergeOverwrite (deepCopy .Values.gateway.runtime.forwarding) (dict "routes" $routes "dns_refresh_interval" (printf "%ds" (int .Values.discovery.dnsRefreshSeconds))) -}}
 {{- $grpc := mergeOverwrite (deepCopy .Values.gateway.runtime.grpc) (dict "address" ":8080") -}}
-{{- $config := (dict "mode" "gateway" "gateway" $gateway "service" $service "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .Values.gateway.pod.shutdownTimeoutSeconds))) -}}
+{{- $config := (dict "mode" "gateway" "forwarding" $gateway "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .Values.gateway.pod.shutdownTimeoutSeconds))) -}}
+{{- with .Values.gateway.runtime.request -}}{{- $_ := set $config "request" . -}}{{- end -}}
 {{- with .Values.gateway.runtime.memory -}}{{- $_ := set $config "memory" . -}}{{- end -}}
 {{- with .Values.gateway.runtime.logging -}}{{- $_ := set $config "logging" . -}}{{- end -}}
 {{- toYaml $config -}}

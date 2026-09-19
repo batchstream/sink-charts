@@ -16,9 +16,9 @@
 {{- end -}}
 
 {{- define "sink.storeConfig" -}}
-{{- $storage := dict "name" .store "driver" .storage.driver -}}
+{{- $storage := dict "driver" .storage.driver -}}
 {{- if eq .storage.driver "mongodb" -}}
-{{- $mongo := dict "metadata_field" (default "__sink" .storage.mongodb.metadataField) "max_concurrent_writes" (default 64 .storage.mongodb.maxConcurrentWrites) "max_concurrent_groups" (default 16 .storage.mongodb.maxConcurrentGroups) -}}
+{{- $mongo := dict "metadata_field" (default "__sink" .storage.mongodb.metadataField) -}}
 {{- $_ := set $mongo "uri_file" "/etc/sink-secrets/mongodb-uri" -}}
 {{- $_ := set $storage "mongodb" $mongo -}}
 {{- else -}}
@@ -31,15 +31,24 @@
 {{- end -}}
 {{- $_ := set $storage "search" $search -}}
 {{- end -}}
+{{- $config := dict "name" .store "storage" $storage -}}
 {{- if .kafka -}}
 {{- $kafka := deepCopy (default dict .kafka.runtime) -}}
-{{- $managed := dict "enabled" true "brokers" .kafka.brokers "topic" (dict "name" .kafka.topic "partitions" .kafka.partitions "replication_factor" (default 3 .kafka.replicationFactor) "min_insync_replicas" (default 2 .kafka.minInSyncReplicas)) "consumer" (dict "group_id" .kafka.consumerGroup) -}}
-{{- $_ := set $storage "kafka" (mergeOverwrite $kafka $managed) -}}
+{{- $managed := dict "enabled" true "brokers" .kafka.brokers "topic" (dict "name" .kafka.topic "partitions" .kafka.partitions "replication_factor" (default 3 .kafka.replicationFactor) "min_insync_replicas" (default 2 .kafka.minInSyncReplicas)) -}}
+{{- $_ := set $config "kafka" (mergeOverwrite $kafka $managed) -}}
 {{- end -}}
-{{- $service := mergeOverwrite (deepCopy .settings.runtime.service) (dict "request" (dict "timeout" (printf "%ds" (int .root.Values.requestTimeoutSeconds)))) -}}
-{{- $grpc := mergeOverwrite (deepCopy .settings.runtime.grpc) (dict "address" ":8080") -}}
-{{- $config := (dict "mode" .role "storage" $storage "service" $service "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .root.Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .settings.pod.shutdownTimeoutSeconds))) -}}
-{{- with .settings.runtime.memory -}}{{- $_ := set $config "memory" . -}}{{- end -}}
-{{- with .settings.runtime.logging -}}{{- $_ := set $config "logging" . -}}{{- end -}}
+{{- toYaml $config -}}
+{{- end -}}
+
+{{- define "sink.roleConfig" -}}
+{{- $config := deepCopy .settings.runtime -}}
+{{- $_ := set $config "mode" .role -}}
+{{- $_ := set $config "health" (dict "address" ":8081") -}}
+{{- $_ := set $config "prometheus" (dict "enabled" .root.Values.metrics.enabled "address" ":9090") -}}
+{{- $_ := set $config "shutdown_timeout" (printf "%ds" (int .settings.pod.shutdownTimeoutSeconds)) -}}
+{{- if eq .role "engine" -}}
+{{- $_ := set $config "grpc" (mergeOverwrite (default dict $config.grpc) (dict "address" ":8080")) -}}
+{{- end -}}
+{{- range $key, $value := $config -}}{{- if empty $value -}}{{- $_ := unset $config $key -}}{{- end -}}{{- end -}}
 {{- toYaml $config -}}
 {{- end -}}

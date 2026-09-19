@@ -14,10 +14,10 @@ owned cluster. Its CoreDNS TTL is set to 30 seconds to exercise the chart
 cache budget; KEDA CRDs are installed only there. No current/default Kubernetes
 context is used. The cluster and probe image are deleted in `finally`, including
 on test failures. Logs and JSON reconciliation evidence remain in `.reports/`.
-The `all` and `scaling` scenarios require Sink 0.18+ and enable chart-generated
+The `all` and `scaling` scenarios require Sink 0.19+ and enable chart-generated
 logging on all roles with an unreachable local OTLP receiver. Business traffic,
-readiness, and bounded shutdown must still work. The mixed-version `upgrades`
-scenario leaves logging empty for compatibility with its legacy images.
+readiness, and bounded shutdown must still work. The `upgrades` scenario exercises separate compatible image references; it does
+not assert compatibility with the retired 0.18 configuration or forwarding protocol.
 Interrupting the entire host/process can bypass cleanup; use `kind get clusters`
 and delete only the recorded test cluster if that happens.
 
@@ -56,13 +56,15 @@ is still deleted on completion. Never point this option at a shared cluster.
 Use `--scenario scaling` to rerun only the Kafka/KEDA regression in a fresh cluster.
 
 Use `--sink-image repository:tag` to qualify an explicitly built local candidate.
-Only the disposable test cluster loads that image. Default deployment/scaling runs use the chart's pinned release; the upgrades
-scenario starts from the explicit legacy baseline below.
+Only the disposable test cluster loads that image. Default deployment/scaling
+runs require the chart's matching 0.19 release. Before release, pass a locally
+built role-config candidate. `upgrades` requires an explicit baseline candidate.
 
 ## Mixed-version upgrades
 
-CI also runs `make integration SCENARIO=upgrades` in a separate disposable Kind
-cluster. The checked pair is Sink 0.16.0 → 0.18.0 → 0.16.0, covering the private
+CI builds two differently version-stamped images from the matching candidate and
+runs `--scenario upgrades --sink-image sink-chart-candidate:a --upgrade-image sink-chart-candidate:b`
+in a separate disposable Kind cluster, covering the private
 unary-to-streaming forwarding transition. Engines upgrade first, then Gateways;
 rollback restores Gateways before Engines. A 0.16.0 Worker remains active to
 check Kafka compatibility with each Engine version. Every stage waits for old

@@ -6,8 +6,8 @@ configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
 One release deploys a Sink cluster: a shared Gateway and independently configured
-Engine and Worker Deployments for each Store. Chart `0.7.0` generates runtime
-configuration and references individual credential keys in external Secrets. It targets Sink **0.18.0**, SDK **0.8.0**, and
+Engine and Worker Deployments for each Store. Chart `0.8.0` generates runtime
+configuration and references individual credential keys in external Secrets. It targets Sink **0.19.0**, SDK **0.8.0**, and
 Kubernetes **1.30+** with native lifecycle sleep hooks enabled.
 
 - Stable Store names, generated headless discovery, staged activation and retirement.
@@ -23,6 +23,18 @@ The default empty `stores` map creates only an inventory ConfigMap. Follow
 budget assumptions, not a zero-error guarantee under arbitrary DNS/backend failures.
 
 ## Install
+
+This configuration requires Sink 0.19.0. Until that release is published, build
+its matching candidate and override `image.repository`, `image.tag`, and
+`image.digest: ""`. Do not pair Chart 0.8 with a 0.18 or older image.
+
+Each Store gets one `store.yaml` ConfigMap shared by Engine and Worker. Both roles
+load it using `--store-config`; their own `sink.yaml` holds only role tuning.
+Use `gateway.runtime.forwarding` / `request`, `engineDefaults.runtime.execution` /
+`batching` / `producer`, and `workerDefaults.runtime.execution` / `consumer`.
+Consumer group belongs in `stores.<name>.worker.runtime.consumer.group_id`.
+There is no service-wide request timeout; callers control request lifetime.
+
 
 Create the release namespace and provision `sink-mongo-v1` and `sink-archive-v1`
 Secrets there. Each example references a key named `uri` containing its complete
@@ -129,7 +141,7 @@ schemas and complete example configurations against the pinned Sink image.
 
 ### Demand-based memory admission
 
-The pinned Sink 0.18.0 image supports demand-based memory admission through
+Sink 0.19.0 supports demand-based memory admission through
 `gateway.runtime.memory`, `engineDefaults.runtime.memory`, and
 `workerDefaults.runtime.memory`, with per-Store overrides under each role.
 The map supports `max_bytes`, `burst_percent` (1–99), and `wait_timeout`.

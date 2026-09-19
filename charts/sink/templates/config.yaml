@@ -11,17 +11,20 @@
 {{- $engine := mergeOverwrite (deepCopy $.Values.engineDefaults) (default dict $settings.engine) }}
 {{- $worker := mergeOverwrite (deepCopy $.Values.workerDefaults) (default dict $settings.worker) }}
 {{- $kafka := omit (default dict $settings.kafka) "lagThreshold" "runtime" }}
+{{- if $kafka }}{{- $_ := set $kafka "consumerGroup" (default "" $worker.runtime.consumer.group_id) }}{{- end }}
 {{- $kafkaRuntime := default dict (default dict $settings.kafka).runtime }}
 {{- $deadLetter := default dict $kafkaRuntime.dead_letter }}
 {{- with $deadLetter.topic }}{{- $_ := set $kafka "deadLetterTopic" . }}{{- end }}
-{{- $engineConfig := include "sink.storeConfig" (dict "root" $ "role" "engine" "store" $store "settings" $engine "storage" $settings.storage "kafka" (default dict $settings.kafka)) }}
+{{- $engineConfig := include "sink.roleConfig" (dict "root" $ "role" "engine" "store" $store "settings" $engine "storage" $settings.storage "kafka" (default dict $settings.kafka)) }}
 {{- $entry := dict "state" $settings.state "kafka" $kafka "workerEnabled" $worker.enabled "engineHash" (toJson (dict "engine" $engine "storage" $settings.storage "kafkaRuntime" (default dict $settings.kafka) "credentialRevision" (default "" $settings.credentialRevision) "runtime" $engineConfig "image" $.Values.image "discovery" $.Values.discovery) | sha256sum) }}
 {{- $_ := set $current $store $entry }}
 {{- if $kafka }}
 {{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "deadLetterTopic" "value" (default (printf "%s.dlq" (trim $kafka.topic)) $deadLetter.topic) "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
 {{- $identity := trim $pair.value }}
+{{- if $identity }}
 {{- if hasKey $pair.seen $identity }}{{- fail (printf "Kafka %s must be unique per Store" $pair.name) }}{{- end }}
 {{- $_ := set $pair.seen $identity true }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if $hasInventory }}
@@ -102,6 +105,20 @@ metadata:
     {{- include "sink.labels" $c | nindent 4 }}
 data:
   sink.yaml: |
-    {{- include "sink.storeConfig" $c | nindent 4 }}
+    {{- include "sink.roleConfig" $c | nindent 4 }}
 {{- end }}
+{{- end }}
+
+{{- range $store, $settings := .Values.stores }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sink.componentName" (dict "root" $ "role" "store" "store" $store) }}
+  labels:
+    app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+data:
+  store.yaml: |
+    {{- include "sink.storeConfig" (dict "store" $store "storage" $settings.storage "kafka" (default dict $settings.kafka)) | nindent 4 }}
 {{- end }}
