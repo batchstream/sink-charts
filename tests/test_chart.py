@@ -204,16 +204,18 @@ class ChartTests(unittest.TestCase):
         self.assertNotIn("memory", default_config)
         values = copy.deepcopy(BASE)
         values["gateway"] = {"runtime": {"memory": {"high_watermark_percent": 90}}}
-        values["engineDefaults"] = {"runtime": {"memory": {"max_bytes": "256MiB", "high_watermark_percent": 80}}}
+        values["engineDefaults"] = {"runtime": {"memory": {"max_bytes": "768MiB", "high_watermark_percent": 80}}}
         values["stores"]["mongo"]["engine"] = {"runtime": {"memory": {"low_watermark_percent": 65}}}
         docs = self.manifests(values)
         gateway = yaml.safe_load(docs["ConfigMap", "test-sink-gateway"]["data"]["sink.yaml"])
         engine = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-engine"]["data"]["sink.yaml"])
         gateway_expected = {"high_watermark_percent": 90}
         self.assertEqual(gateway["memory"], gateway_expected)
-        engine_expected = {"max_bytes": "256MiB", "high_watermark_percent": 80, "low_watermark_percent": 65}
+        engine_expected = {"max_bytes": "768MiB", "high_watermark_percent": 80, "low_watermark_percent": 65}
         self.assertEqual(engine["memory"], engine_expected)
         values["gateway"]["runtime"]["memory"]["high_watermark_percent"] = 100
+        self.assertNotEqual(render(values).returncode, 0)
+        values["gateway"]["runtime"]["memory"]["high_watermark_percent"] = 70
         self.assertNotEqual(render(values).returncode, 0)
 
     def test_empty_and_staged_cluster(self):

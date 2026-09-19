@@ -36,7 +36,7 @@ class Qualification:
         self.helm = ["helm", "--kubeconfig", self.kubeconfig, "--kube-context", f"kind-{self.cluster}"]
         self.values = {
             "gateway": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"memory": "512Mi"}}}},
-            "engineDefaults": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"memory": "512Mi"}}}},
+            "engineDefaults": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}}}},
             "workerDefaults": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"cpu": "200m", "memory": "512Mi"}}}},
             "stores": {"mongo": {"state": "active", "storage": self.storage("mongo-v1"), "engine": {},
                 "worker": {"runtime": {"consumer": {"group_id": "mongo-workers"}}, "enabled": True, "replicaCount": 0, "allowScaleToZero": True, "disruptionBudget": {"enabled": False}},
