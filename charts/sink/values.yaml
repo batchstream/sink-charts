@@ -52,7 +52,7 @@ gateway:
   runtime:
     # Additional runtime tuning; managed routing/listeners cannot be overridden.
     logging: {} # Sink 0.18+: level, components, console, labels, failure_body, max_body_bytes, otlp.
-    memory: {} # Omit to auto-detect capacity; new memory-admission Sink builds only.
+    memory: {} # Omit to detect the process ceiling; high/low watermarks default to 80%/70%.
     forwarding: {}
     request: {}
     grpc: {}
@@ -116,7 +116,7 @@ gateway:
 engineDefaults:
   image: {} # Per-Store engine.image overrides these fields.
   replicaCount: 2
-  # Inherit Sink defaults: batching max_operations=32, max_wait=2ms; memory burst_percent=10.
+  # Inherit Sink defaults: batching max_operations=32, max_wait=2ms; memory high/low watermarks=80%/70%.
   runtime: {logging: {}, memory: {}, execution: {}, batching: {}, producer: {}, grpc: {}} # Per-Engine tuning.
   readiness: storage # storage | kafka | process; do not combine dependency restarts with liveness.
   pod:
@@ -243,8 +243,9 @@ workerDefaults:
 #       mongodb:
 #         uriSecretRef: {name: orders-mongo-v1, key: uri}
 #         metadataField: __sink
+#         maxConcurrentWrites: 64 # Per process; both roles use this Store policy.
+#         maxConcurrentGroups: 16
 #     credentialRevision: "" # Roll both roles after an in-place Secret update.
-#     engine: {runtime: {execution: {mongodb: {max_concurrent_writes: 64}}}}
 #     worker: {enabled: false}
 # Add kafka metadata to enable async delivery; defaults: replicationFactor=3,
 # minInSyncReplicas=1. kafka.runtime carries additional nonsecret Kafka tuning.

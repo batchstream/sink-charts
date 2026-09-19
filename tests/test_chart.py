@@ -203,17 +203,17 @@ class ChartTests(unittest.TestCase):
         default_config = yaml.safe_load(defaults["ConfigMap", "test-sink-gateway"]["data"]["sink.yaml"])
         self.assertNotIn("memory", default_config)
         values = copy.deepcopy(BASE)
-        values["gateway"] = {"runtime": {"memory": {"burst_percent": 15}}}
-        values["engineDefaults"] = {"runtime": {"memory": {"max_bytes": "256MiB", "burst_percent": 10}}}
-        values["stores"]["mongo"]["engine"] = {"runtime": {"memory": {"wait_timeout": "500ms"}}}
+        values["gateway"] = {"runtime": {"memory": {"high_watermark_percent": 90}}}
+        values["engineDefaults"] = {"runtime": {"memory": {"max_bytes": "256MiB", "high_watermark_percent": 80}}}
+        values["stores"]["mongo"]["engine"] = {"runtime": {"memory": {"low_watermark_percent": 65}}}
         docs = self.manifests(values)
         gateway = yaml.safe_load(docs["ConfigMap", "test-sink-gateway"]["data"]["sink.yaml"])
         engine = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-engine"]["data"]["sink.yaml"])
-        gateway_expected = {"burst_percent": 15}
+        gateway_expected = {"high_watermark_percent": 90}
         self.assertEqual(gateway["memory"], gateway_expected)
-        engine_expected = {"max_bytes": "256MiB", "burst_percent": 10, "wait_timeout": "500ms"}
+        engine_expected = {"max_bytes": "256MiB", "high_watermark_percent": 80, "low_watermark_percent": 65}
         self.assertEqual(engine["memory"], engine_expected)
-        values["gateway"]["runtime"]["memory"]["burst_percent"] = 100
+        values["gateway"]["runtime"]["memory"]["high_watermark_percent"] = 100
         self.assertNotEqual(render(values).returncode, 0)
 
     def test_empty_and_staged_cluster(self):
@@ -303,7 +303,8 @@ class ChartTests(unittest.TestCase):
             shared = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-store"]["data"]["store.yaml"])
             self.assertEqual(shared["name"], "mongo")
             self.assertEqual(shared["storage"]["mongodb"]["uri_file"], "/etc/sink-secrets/mongodb-uri")
-            self.assertNotIn("max_concurrent_writes", shared["storage"]["mongodb"])
+            self.assertEqual(shared["storage"]["mongodb"]["max_concurrent_writes"], 64)
+            self.assertEqual(shared["storage"]["mongodb"]["max_concurrent_groups"], 16)
             self.assertNotIn("consumer", shared["kafka"])
             self.assertEqual(shared["kafka"]["replication_factor"], 3)
             self.assertEqual(shared["kafka"]["min_insync_replicas"], 1)
@@ -323,30 +324,31 @@ class ChartTests(unittest.TestCase):
         for role in ["engine", "worker"]:
             name = f"test-sink-mongo-{role}"
             self.assertNotEqual(rotated["Deployment", name]["spec"]["template"], versioned["Deployment", name]["spec"]["template"])
-        values["stores"]["mongo"]["engine"] = {"runtime": {"execution": {"mongodb": {"max_concurrent_writes": 32}}}}
+        values["stores"]["mongo"]["storage"]["mongodb"]["maxConcurrentWrites"] = 32
         tuned = self.manifests(values)
-        name = "test-sink-mongo-engine"
-        config = yaml.safe_load(tuned["ConfigMap", name]["data"]["sink.yaml"])
-        self.assertEqual(config["execution"]["mongodb"]["max_concurrent_writes"], 32)
-        self.assertEqual(versioned["Deployment", "test-sink-mongo-worker"], tuned["Deployment", "test-sink-mongo-worker"])
-        self.assertEqual(versioned["ConfigMap", "test-sink-mongo-store"], tuned["ConfigMap", "test-sink-mongo-store"])
-        self.assertNotEqual(versioned["Deployment", name]["spec"]["template"]["metadata"]["annotations"],
-                            tuned["Deployment", name]["spec"]["template"]["metadata"]["annotations"])
+        shared = yaml.safe_load(tuned["ConfigMap", "test-sink-mongo-store"]["data"]["store.yaml"])
+        self.assertEqual(shared["storage"]["mongodb"]["max_concurrent_writes"], 32)
+        for role in ["engine", "worker"]:
+            name = f"test-sink-mongo-{role}"
+            config = yaml.safe_load(tuned["ConfigMap", name]["data"]["sink.yaml"])
+            self.assertNotIn("mongodb", config.get("execution", {}))
+            self.assertNotEqual(versioned["Deployment", name]["spec"]["template"]["metadata"]["annotations"],
+                                tuned["Deployment", name]["spec"]["template"]["metadata"]["annotations"])
 
     def test_advanced_tuning_is_generated_from_values(self):
         values = copy.deepcopy(BASE)
         values["metrics"] = {"enabled": True}
-        values["engineDefaults"] = {"runtime": {"execution": {"max_output_bytes": "16MiB"},
+        values["engineDefaults"] = {"runtime": {"execution": {"merge": {"max_attempts": 5}},
                                                "grpc": {"max_receive_message_bytes": "8MiB"}}}
         values["stores"]["mongo"]["engine"] = {"runtime": {"batching": {"max_wait": "5ms"}}}
-        values["stores"]["mongo"]["worker"] = {"enabled": True, "runtime": {"execution": {"max_output_bytes": "4MiB"}, "consumer": {"processing_timeout": "20s"}}}
+        values["stores"]["mongo"]["worker"] = {"enabled": True, "runtime": {"execution": {"merge": {"max_attempts": 7}}, "consumer": {"processing_timeout": "20s"}}}
         values["stores"]["mongo"]["kafka"] = {**KAFKA, "runtime": {"dead_letter": {"retention": "720h"}}}
         docs = self.manifests(values)
         engine = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-engine"]["data"]["sink.yaml"])
         worker = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-worker"]["data"]["sink.yaml"])
-        self.assertEqual(engine["execution"]["max_output_bytes"], "16MiB")
+        self.assertEqual(engine["execution"]["merge"]["max_attempts"], 5)
         self.assertEqual(engine["batching"]["max_wait"], "5ms")
-        self.assertEqual(worker["execution"]["max_output_bytes"], "4MiB")
+        self.assertEqual(worker["execution"]["merge"]["max_attempts"], 7)
         self.assertNotIn("batching", worker)
         self.assertEqual(engine["grpc"]["max_receive_message_bytes"], "8MiB")
         self.assertEqual(worker["consumer"]["processing_timeout"], "20s")
@@ -487,7 +489,7 @@ class ChartTests(unittest.TestCase):
             {"type": "memory", "name": "memory", "metricType": "Utilization", "metadata": {"value": "80"}},
             {"type": "prometheus", "name": "execution-budget", "metricType": "AverageValue",
              "useCachedMetrics": True,
-             "metadata": {"serverAddress": "http://prometheus", "query": "sum(sink_execution_store_bytes)",
+             "metadata": {"serverAddress": "http://prometheus", "query": "sum(sink_memory_used_bytes)",
                           "threshold": "134217728", "ignoreNullValues": "false"}},
         ]
         values = {**BASE, "engineDefaults": {"autoscaling": {

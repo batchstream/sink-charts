@@ -139,21 +139,18 @@ Rendering tests are offline. `make integration` is an explicit Docker/Kind test;
 see [tests/integration](tests/integration/README.md). CI also checks Kubernetes
 schemas and complete example configurations against the pinned Sink image.
 
-### Demand-based memory admission
+### Process memory admission
 
-Sink 0.19.0 supports demand-based memory admission through
-`gateway.runtime.memory`, `engineDefaults.runtime.memory`, and
-`workerDefaults.runtime.memory`, with per-Store overrides under each role.
-The map supports `max_bytes`, `burst_percent` (1–99), and `wait_timeout`.
-Leave it empty for server automatic sizing and its measured 10% reserve default.
-Empty maps are omitted from generated YAML, which also permits explicit legacy
-image overrides during staged upgrades. Keep these fields empty on Sink 0.16.0.
+Sink 0.19.0 uses high/low watermarks through `gateway.runtime.memory`,
+`engineDefaults.runtime.memory`, and `workerDefaults.runtime.memory`, with per-Store
+overrides. Supported fields are `max_bytes`, `high_watermark_percent` (default 80),
+and `low_watermark_percent` (default 70). Require `0 < low < high < 100`.
+An empty map selects server defaults. Startup panics when estimated minimum
+working memory does not fit below the high watermark; larger gRPC/Lua/Kafka
+buffers may require larger Pod limits. See [server sizing](https://github.com/batchstream/sink/blob/main/docs/design/demand-based-admission.md).
 
-[The memory KEDA overlay](examples/memory-keda-values.yaml) supplies managed-capacity
-pressure and temporary-rejection signals with `metricType: Value`. Install KEDA,
-configure Prometheus scraping and adjust job/namespace selectors to one Gateway
-Deployment before enabling it. Engine selectors must also isolate the Store;
-Workers should retain Kafka lag triggers. Missing metrics must remain a scaler
-error rather than zero load. Upgrade Engines before Gateways for the private
-framed-response protocol; roll back Gateways first. Applying the example changes
-scaling configuration; plan and verify the rollout using the operational runbook.
+[The memory KEDA overlay](examples/memory-keda-values.yaml) uses observed memory
+pressure and RPC rejection ratios with `metricType: Value`. Configure Prometheus
+selectors for one role/Deployment/Store and retain Worker Kafka lag triggers.
+Missing data remains a scaler error. Gateway and Engine must use matching private
+protocol versions; incompatible versions require an isolated cutover.

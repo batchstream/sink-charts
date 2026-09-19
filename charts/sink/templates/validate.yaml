@@ -65,6 +65,10 @@
 {{- end -}}
 {{- end -}}
 {{- range $component := include "sink.components" . | fromJsonArray -}}
+{{- $memory := default dict $component.settings.runtime.memory -}}
+{{- $high := int (default 80 $memory.high_watermark_percent) -}}
+{{- $low := int (default 70 $memory.low_watermark_percent) -}}
+{{- if ge $low $high -}}{{- fail "memory.low_watermark_percent must be lower than high_watermark_percent" -}}{{- end -}}
 {{- if ne $component.role "gateway" -}}
 {{- if hasKey (default dict $component.settings.runtime.grpc) "address" -}}{{- fail "Store listeners are chart-managed" -}}{{- end -}}
 {{- end -}}

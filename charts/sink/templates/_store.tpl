@@ -19,6 +19,8 @@
 {{- $storage := dict "driver" .storage.driver -}}
 {{- if eq .storage.driver "mongodb" -}}
 {{- $mongo := dict "metadata_field" (default "__sink" .storage.mongodb.metadataField) -}}
+{{- $_ := set $mongo "max_concurrent_writes" (default 64 .storage.mongodb.maxConcurrentWrites) -}}
+{{- $_ := set $mongo "max_concurrent_groups" (default 16 .storage.mongodb.maxConcurrentGroups) -}}
 {{- $_ := set $mongo "uri_file" "/etc/sink-secrets/mongodb-uri" -}}
 {{- $_ := set $storage "mongodb" $mongo -}}
 {{- else -}}

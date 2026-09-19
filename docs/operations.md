@@ -11,9 +11,9 @@ creates a different Store. Only active Stores appear in the Gateway routes.
 Common operational values are an abstraction over Sink configuration: listener
 ports, time budgets, Store identity, Kafka policy and credentials are configured
 once and rendered consistently for each role. MongoDB tuning uses
-`storage.mongodb.metadataField` (default `__sink`). Process concurrency belongs
-to each role's `runtime.execution.mongodb.max_concurrent_writes` (64) and
-`max_concurrent_groups` (16). Resource/memory limits, discovery convergence, rolling
+`storage.mongodb.metadataField` (default `__sink`), `maxConcurrentWrites` (64),
+and `maxConcurrentGroups` (16). Both roles reuse these settings; concurrency
+limits apply independently within each process. Resource/memory limits, discovery convergence, rolling
 surge and graceful exit have the defaults described below. Advanced tuning remains
 inside values under `runtime`; it never requires a separately maintained config file.
 
@@ -40,7 +40,7 @@ these shared settings directly under `kafka`. Worker group belongs to
 `stores.<name>.worker.runtime.consumer.group_id`, which KEDA also uses.
 
 Empty `engineDefaults.runtime.batching` inherits Sink's measured starting values:
-`max_operations: 32` and `max_wait: 2ms`. `memory.burst_percent` remains `10`.
+`max_operations: 32` and `max_wait: 2ms`. Memory watermarks default to 80% for rejection and 70% for recovery.
 The Chart does not emit duplicate overrides for these runtime defaults. Tune a
 Store through `stores.<name>.engine.runtime.batching`; the 32-operation batch
 target does not change Gateway's 1,000-operation public request limit. See
@@ -295,9 +295,11 @@ or milli-byte quantities are rejected. `GOMEMLIMIT` defaults to 80% of the conta
 memory limit, leaving headroom for non-Go memory. It is a soft Go runtime target,
 not an OOM guarantee. Do not override it through `env`; use `goMemoryLimitPercent`.
 
-Application queues, execution bytes, publish buffers, Kafka fetch sizes and gRPC
+Application queues, publish buffers, Kafka fetch sizes and gRPC
 message limits must fit the memory budget too. Set these in the supported `runtime.execution`/`runtime.batching`/`runtime.grpc`
-configuration and qualify representative maximum documents/fanout. Increasing
+configuration and qualify representative maximum documents/fanout. Startup panics
+when its minimum working-memory estimate exceeds the high-watermark allowance;
+this is a sizing check, not an OOM guarantee. Increasing
 replicas cannot repair an overloaded database or Kafka partition. Budget peak
 resources as desired replicas **plus surge and terminating replicas**, multiplied
 by per-Pod requests, then add Kafka/backend/controllers and operational headroom.
