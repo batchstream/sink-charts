@@ -7,6 +7,7 @@ CHART := charts/sink
 lint:
 	$(HELM) lint $(CHART) --strict
 	$(HELM) lint $(CHART) --strict -f examples/cluster-values.yaml
+	$(HELM) lint $(CHART) --strict -f examples/cluster-values.yaml -f examples/logging-values.yaml
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v

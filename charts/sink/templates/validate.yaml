@@ -3,6 +3,7 @@
 {{- range $component := include "sink.components" . | fromJsonArray -}}
 {{- $c := merge (dict "root" $) $component -}}
 {{- $s := $c.settings -}}{{- $a := $s.autoscaling -}}
+{{- include "sink.validateLogging" $s -}}
 {{- $minimum := int $s.replicaCount -}}
 {{- if ne $a.mode "none" -}}{{- $minimum = int $a.minReplicas -}}{{- end -}}
 {{- $floor := 2 -}}

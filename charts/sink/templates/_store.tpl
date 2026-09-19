@@ -40,5 +40,6 @@
 {{- $grpc := mergeOverwrite (deepCopy .settings.runtime.grpc) (dict "address" ":8080") -}}
 {{- $config := (dict "mode" .role "storage" $storage "service" $service "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .root.Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .settings.pod.shutdownTimeoutSeconds))) -}}
 {{- with .settings.runtime.memory -}}{{- $_ := set $config "memory" . -}}{{- end -}}
+{{- with .settings.runtime.logging -}}{{- $_ := set $config "logging" . -}}{{- end -}}
 {{- toYaml $config -}}
 {{- end -}}

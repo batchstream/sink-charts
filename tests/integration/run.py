@@ -45,6 +45,12 @@ class Qualification:
         }
         if args.sink_image:
             self.values["image"] = {"repository": args.sink_image.rsplit(":", 1)[0], "tag": args.sink_image.rsplit(":", 1)[1], "digest": ""}
+        if args.scenario != "upgrades":
+            # A missing Collector must not affect business traffic or readiness.
+            logging = {"level": "info", "labels": {"environment": "qualification"},
+                       "otlp": {"enabled": True, "endpoint": "127.0.0.1:4317", "tls": {"enabled": False}}}
+            for role in ["gateway", "engineDefaults", "workerDefaults"]:
+                self.values[role]["runtime"] = {"logging": copy.deepcopy(logging)}
         self.events = []
         self.owned = False
         self.image_built = False

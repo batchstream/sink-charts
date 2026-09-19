@@ -132,7 +132,7 @@ those policies or silently expose a public LoadBalancer by default.
 
 ### Staged image upgrades
 
-Chart 0.6 defaults to Sink 0.18.0. Existing 0.16 installations must explicitly
+Chart 0.7 defaults to Sink 0.18.0. Existing 0.16 installations must explicitly
 retain their current global `image.tag` and `image.digest` when moving to the new
 chart, then advance role images in the sequence below. Once every role uses the
 new release, the global default can replace those temporary role pins. Keep

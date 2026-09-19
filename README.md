@@ -6,7 +6,7 @@ configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
 One release deploys a Sink cluster: a shared Gateway and independently configured
-Engine and Worker Deployments for each Store. Chart `0.6.0` generates runtime
+Engine and Worker Deployments for each Store. Chart `0.7.0` generates runtime
 configuration and references individual credential keys in external Secrets. It targets Sink **0.18.0**, SDK **0.8.0**, and
 Kubernetes **1.30+** with native lifecycle sleep hooks enabled.
 
@@ -50,7 +50,7 @@ of Store backend credentials. See the runbook for Sink Kafka authentication limi
 The image is pinned to a verified multi-architecture digest at
 `ghcr.io/batchstream/sink`. Override `image.repository` **and** `image.digest`
 together when moving artifacts. To select by tag, explicitly set `image.digest: ""`.
-When upgrading an existing Sink 0.16 installation to Chart 0.6, explicitly keep
+When upgrading an existing Sink 0.16 installation to Chart 0.7, explicitly keep
 its current global image tag and digest in your values while advancing all Engines
 with `engineDefaults.image`. Wait for every old Engine Pod to exit before advancing
 `gateway.image`; advance Workers separately. See the
@@ -82,6 +82,37 @@ stores:
           limits: {memory: 2Gi}
       autoscaling: {mode: hpa, minReplicas: 2, maxReplicas: 8}
 ```
+
+### Diagnostic logging
+
+Set `gateway.runtime.logging`, `engineDefaults.runtime.logging`, and
+`workerDefaults.runtime.logging`. Store-specific `stores.<name>.engine.runtime.logging`
+and `stores.<name>.worker.runtime.logging` merge into their role defaults, including
+nested component levels, labels and OTLP settings. Explicit `false` overrides are
+preserved. Empty maps omit the section and retain Sink's warn-level JSON stderr
+defaults with OTLP disabled; keep them empty on images older than Sink 0.18.0.
+
+The [logging overlay](examples/logging-values.yaml) documents every supported
+field and can be applied after `cluster-values.yaml`. Replace its Collector
+endpoint and deployment labels. It uses verified TLS; set `otlp.tls.enabled: false`
+explicitly for a plaintext receiver. `grpc` and `http/protobuf` use a `host:port`
+endpoint (typically 4317 and 4318), without a scheme or path. The chart does not
+install a Collector. See the [Sink logging reference](https://github.com/batchstream/sink/blob/v0.18.0/docs/logging.md)
+for event meanings and bounds. `failure_body` defaults to false; enabling it can
+include document content in supported severe-failure logs.
+
+Pods receive `POD_UID`, `POD_NAME`, `POD_NAMESPACE`, and `NODE_NAME` through the
+Downward API. Explicit entries in a role's `pod.env` override these defaults;
+`logging.labels` takes precedence over the matching environment values. Logging
+configuration changes update the Pod config checksum and trigger a rolling restart.
+
+Schema and template checks validate settings after role/Store merging, including
+at least one output, OTLP endpoint/queue limits, bounded durations and body sizes.
+When OTLP is enabled, `pod.shutdownBudgetSeconds` must cover four application
+shutdown timeouts plus `logging.otlp.shutdown_timeout` (default 5s, rounded up to
+whole seconds). The existing 150s budget covers the maximum 30s log flush with
+default 30s application timeouts. Termination grace and autoscaler cooldown checks
+continue to use the whole shutdown budget.
 
 ## Validate
 
