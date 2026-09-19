@@ -14,6 +14,10 @@ owned cluster. Its CoreDNS TTL is set to 30 seconds to exercise the chart
 cache budget; KEDA CRDs are installed only there. No current/default Kubernetes
 context is used. The cluster and probe image are deleted in `finally`, including
 on test failures. Logs and JSON reconciliation evidence remain in `.reports/`.
+The `all` and `scaling` scenarios require Sink 0.18+ and enable chart-generated
+logging on all roles with an unreachable local OTLP receiver. Business traffic,
+readiness, and bounded shutdown must still work. The mixed-version `upgrades`
+scenario leaves logging empty for compatibility with its legacy images.
 Interrupting the entire host/process can bypass cleanup; use `kind get clusters`
 and delete only the recorded test cluster if that happens.
 

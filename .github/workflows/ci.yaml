@@ -36,7 +36,7 @@ jobs:
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
           helm template sink ./charts/sink --kube-version 1.30.0 \
-            -f examples/cluster-values.yaml --set metrics.enabled=true \
+            -f examples/cluster-values.yaml -f examples/logging-values.yaml --set metrics.enabled=true \
             | kubeconform -strict -summary -kubernetes-version 1.30.0
       - name: Check complete configurations with released Sink
         run: python tests/check_runtime.py

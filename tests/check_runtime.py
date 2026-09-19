@@ -15,9 +15,13 @@ def main():
     args = parser.parse_args()
     defaults = yaml.safe_load((ROOT / "charts/sink/values.yaml").read_text())["image"]
     image = args.sink_image or (f"{defaults['repository']}@{defaults['digest']}" if defaults["digest"] else f"{defaults['repository']}:{defaults['tag']}")
-    for example in ["cluster-values.yaml", "search-values.yaml"]:
-        rendered = subprocess.check_output(["helm", "template", "check", str(ROOT / "charts/sink"),
-                                           "-f", str(ROOT / "examples" / example)], text=True)
+    examples = [["cluster-values.yaml"], ["search-values.yaml"],
+                ["cluster-values.yaml", "logging-values.yaml"]]
+    for files in examples:
+        command = ["helm", "template", "check", str(ROOT / "charts/sink")]
+        for example in files:
+            command.extend(["-f", str(ROOT / "examples" / example)])
+        rendered = subprocess.check_output(command, text=True)
         configs = [doc for doc in yaml.safe_load_all(rendered)
                    if doc and doc["kind"] == "ConfigMap" and "sink.yaml" in doc.get("data", {})]
         with tempfile.TemporaryDirectory(prefix="sink-chart-config-") as directory:

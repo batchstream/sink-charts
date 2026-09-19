@@ -32,6 +32,131 @@ class ChartTests(unittest.TestCase):
         return {(doc["kind"], doc["metadata"]["name"]): doc
                 for doc in yaml.safe_load_all(result.stdout) if doc}
 
+    def test_logging_inheritance_outputs_and_rollout(self):
+        values = copy.deepcopy(BASE)
+        worker_settings = {"enabled": True}
+        values["stores"]["mongo"].update(kafka=KAFKA, worker=worker_settings)
+        values["stores"]["archive"] = {"storage": STORAGE, "state": "staged"}
+        original = self.manifests(values)
+        for doc in original.values():
+            if doc["kind"] == "ConfigMap" and "sink.yaml" in doc.get("data", {}):
+                self.assertNotIn("logging", yaml.safe_load(doc["data"]["sink.yaml"]))
+        logging = {"level": "warn", "components": {"storage": "info"},
+                   "console": {"enabled": True, "format": "json"},
+                   "labels": {"environment": "test", "cluster": "fixture"},
+                   "failure_body": True, "max_body_bytes": "32KiB",
+                   "otlp": {"enabled": True, "protocol": "grpc", "endpoint": "collector:4317",
+                            "tls": {"enabled": True}, "queue_size": 256, "batch_size": 32,
+                            "flush_interval": "500ms", "export_timeout": "2s", "shutdown_timeout": "5s"}}
+        for role in ["gateway", "engineDefaults", "workerDefaults"]:
+            values[role] = {"runtime": {"logging": copy.deepcopy(logging)}}
+        engine_override = {"failure_body": False, "console": {"enabled": False},
+                           "components": {"rpc": "debug"}, "otlp": {"tls": {"enabled": False}}}
+        values["stores"]["mongo"]["engine"] = {"runtime": {"logging": engine_override}}
+        worker_override = {"otlp": {"enabled": False}, "level": "error"}
+        values["stores"]["mongo"]["worker"]["runtime"] = {"logging": worker_override}
+        docs = self.manifests(values)
+        engine = copy.deepcopy(logging)
+        engine["failure_body"] = False
+        engine["console"]["enabled"] = False
+        engine["components"]["rpc"] = "debug"
+        engine["otlp"]["tls"]["enabled"] = False
+        worker = copy.deepcopy(logging)
+        worker["otlp"]["enabled"] = False
+        worker["level"] = "error"
+        for name, expected in [("test-sink-gateway", logging), ("test-sink-archive-engine", logging),
+                               ("test-sink-mongo-engine", engine), ("test-sink-mongo-worker", worker)]:
+            config = yaml.safe_load(docs["ConfigMap", name]["data"]["sink.yaml"])
+            self.assertEqual(config["logging"], expected)
+            before = original["Deployment", name]["spec"]["template"]["metadata"]["annotations"]
+            after = docs["Deployment", name]["spec"]["template"]["metadata"]["annotations"]
+            self.assertNotEqual(before["sink.batchstream.io/config-checksum"], after["sink.batchstream.io/config-checksum"])
+        values["stores"]["mongo"]["engine"]["runtime"]["logging"]["level"] = "debug"
+        changed = self.manifests(values)
+        for name in ["test-sink-gateway", "test-sink-mongo-worker", "test-sink-archive-engine"]:
+            self.assertEqual(docs["Deployment", name], changed["Deployment", name])
+
+    def test_logging_identity_uses_downward_api_without_duplicate_overrides(self):
+        values = copy.deepcopy(BASE)
+        worker_settings = {"enabled": True}
+        values["stores"]["mongo"].update(kafka=KAFKA, worker=worker_settings)
+        values["engineDefaults"] = {"pod": {"env": [{"name": "POD_NAME", "value": "explicit-pod"}]}}
+        docs = self.manifests(values)
+        fields = {"POD_UID": "metadata.uid", "POD_NAME": "metadata.name",
+                  "POD_NAMESPACE": "metadata.namespace", "NODE_NAME": "spec.nodeName"}
+        for name in ["test-sink-gateway", "test-sink-mongo-engine", "test-sink-mongo-worker"]:
+            env = docs["Deployment", name]["spec"]["template"]["spec"]["containers"][0]["env"]
+            indexed = {entry["name"]: entry for entry in env}
+            self.assertEqual(len(indexed), len(env))
+            for key, field in fields.items():
+                if key == "POD_NAME" and name.endswith("engine"):
+                    self.assertEqual(indexed[key]["value"], "explicit-pod")
+                else:
+                    self.assertEqual(indexed[key]["valueFrom"]["fieldRef"]["fieldPath"], field)
+
+    def test_logging_rejects_invalid_settings(self):
+        invalid = [
+            {"level": "trace"}, {"components": {"unknown": "debug"}}, {"components": {"rpc": "trace"}},
+            {"console": {"format": "yaml"}}, {"console": {"enabled": False}}, {"unknown": True},
+            {"labels": {"tenant": "test"}}, {"labels": {"pod": "line\nbreak"}},
+            {"labels": {"pod": "雪" * 86}}, {"labels": {"cluster": 42}},
+            {"failure_body": "true"}, {"max_body_bytes": 1023}, {"max_body_bytes": 65537},
+            {"max_body_bytes": "0.5KiB"}, {"max_body_bytes": "65KiB"}, {"max_body_bytes": "1.0001KiB"},
+            {"otlp": {"enabled": True}}, {"otlp": {"endpoint": "https://collector:4317"}},
+            {"otlp": {"endpoint": "user@collector:4317"}}, {"otlp": {"endpoint": "collector:0"}},
+            {"otlp": {"endpoint": "collector:65536"}}, {"otlp": {"endpoint": "collector:4317/logs"}},
+            {"otlp": {"headers": {"authorization": "unsupported"}}}, {"otlp": {"protocol": "http"}},
+            {"otlp": {"tls": {"insecure": True}}}, {"otlp": {"queue_size": 0}},
+            {"otlp": {"queue_size": 8193}}, {"otlp": {"batch_size": 513}},
+            {"otlp": {"queue_size": 127}}, {"otlp": {"batch_size": 0}},
+            {"otlp": {"flush_interval": "61s"}}, {"otlp": {"export_timeout": "0s"}},
+            {"otlp": {"shutdown_timeout": "30s1ns"}}, {"otlp": {"export_timeout": "1m"}},
+            {"otlp": {"flush_interval": "garbage"}}, {"otlp": {"export_timeout": "-1s"}},
+        ]
+        for logging in invalid:
+            with self.subTest(logging=logging):
+                values = copy.deepcopy(BASE)
+                values["engineDefaults"] = {"runtime": {"logging": logging}}
+                result = render(values)
+                self.assertNotEqual(result.returncode, 0, logging)
+                self.assertIn("logging", result.stderr)
+        for role in ["gateway", "engineDefaults", "workerDefaults"]:
+            values = copy.deepcopy(BASE)
+            worker_settings = {"enabled": True}
+            values["stores"]["mongo"].update(kafka=KAFKA, worker=worker_settings)
+            values[role] = {"runtime": {"logging": {"otlp": {"enabled": True}}}}
+            self.assertIn("logging.otlp.endpoint", render(values).stderr)
+
+    def test_logging_accepts_units_protocols_and_effective_store_settings(self):
+        values = copy.deepcopy(BASE)
+        logging = {"console": {"enabled": False}, "max_body_bytes": "1.5 KiB",
+                   "labels": {"pod": "雪" * 85},
+                   "otlp": {"enabled": True, "endpoint": "[::1]:4318", "protocol": "http/protobuf",
+                            "tls": {"enabled": False}, "flush_interval": "1m", "export_timeout": "+1.5s",
+                            "shutdown_timeout": "1s500ms", "queue_size": 16}}
+        values["engineDefaults"] = {"runtime": {"logging": logging}}
+        values["stores"]["mongo"]["engine"] = {"runtime": {"logging": {"otlp": {"batch_size": 8}}}}
+        docs = self.manifests(values)
+        config = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-engine"]["data"]["sink.yaml"])
+        self.assertEqual(config["logging"]["otlp"]["batch_size"], 8)
+        values["stores"]["mongo"]["engine"]["runtime"]["logging"]["otlp"]["enabled"] = False
+        self.assertIn("logging requires console or OTLP", render(values).stderr)
+        values["engineDefaults"]["runtime"]["logging"]["console"]["enabled"] = True
+        values["stores"]["mongo"]["engine"]["runtime"]["logging"]["otlp"]["endpoint"] = ""
+        self.manifests(values)
+
+    def test_logging_shutdown_budget_includes_exporter_flush(self):
+        values = copy.deepcopy(BASE)
+        values["gateway"] = {"runtime": {"logging": {"otlp": {"enabled": True, "endpoint": "collector:4317",
+                                                                  "shutdown_timeout": "5.5s"}}},
+                             "pod": {"shutdownBudgetSeconds": 125}}
+        self.assertIn("plus logging.otlp.shutdown_timeout (126 seconds)", render(values).stderr)
+        values["gateway"]["pod"]["shutdownBudgetSeconds"] = 126
+        self.manifests(values)
+        values["gateway"]["runtime"]["logging"]["otlp"]["enabled"] = False
+        values["gateway"]["pod"]["shutdownBudgetSeconds"] = 120
+        self.manifests(values)
+
     def test_role_images_allow_engine_first_upgrade_and_gateway_first_rollback(self):
         values = copy.deepcopy(BASE)
         values["stores"]["mongo"].update(kafka=KAFKA, worker={"enabled": True})

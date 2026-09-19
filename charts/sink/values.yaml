@@ -51,7 +51,8 @@ gateway:
       enabled: true
       annotations: {}
   runtime:
-    # Additional memory/gateway/service/grpc tuning; managed routing/listeners cannot be overridden.
+    # Additional runtime tuning; managed routing/listeners cannot be overridden.
+    logging: {} # Sink 0.18+: level, components, console, labels, failure_body, max_body_bytes, otlp.
     memory: {} # Omit to auto-detect capacity; new memory-admission Sink builds only.
     gateway: {}
     service: {}
@@ -116,7 +117,7 @@ gateway:
 engineDefaults:
   image: {} # Per-Store engine.image overrides these fields.
   replicaCount: 2
-  runtime: {memory: {}, service: {}, grpc: {}} # Nonsecret per-role tuning only.
+  runtime: {logging: {}, memory: {}, service: {}, grpc: {}} # Nonsecret per-role tuning only.
   readiness: storage # storage | kafka | process; do not combine dependency restarts with liveness.
   pod:
     configRevision: "" # Bump to reload an in-place Secret change; prefer versioned Secret names.
@@ -176,7 +177,7 @@ workerDefaults:
   enabled: false # Enable together with the Store's Kafka settings.
   replicaCount: 2
   allowScaleToZero: false # Explicitly accept delayed application while scaled to zero.
-  runtime: {memory: {}, service: {}, grpc: {}}
+  runtime: {logging: {}, memory: {}, service: {}, grpc: {}}
   pod:
     configRevision: ""
     annotations: {}

@@ -98,6 +98,16 @@ spec:
           env:
             - name: GOMEMLIMIT
               value: {{ printf "%d" (div (mul (include "sink.memoryBytes" $s.pod.resources.limits.memory | int64) $s.pod.goMemoryLimitPercent) 100) | quote }}
+            {{- $customEnv := dict }}
+            {{- range $s.pod.env }}{{- $_ := set $customEnv .name true }}{{- end }}
+            {{- range $name, $field := dict "POD_UID" "metadata.uid" "POD_NAME" "metadata.name" "POD_NAMESPACE" "metadata.namespace" "NODE_NAME" "spec.nodeName" }}
+            {{- if not (hasKey $customEnv $name) }}
+            - name: {{ $name }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: {{ $field }}
+            {{- end }}
+            {{- end }}
             {{- with $s.pod.env }}{{ toYaml . | nindent 12 }}{{- end }}
           {{- with $s.pod.envFrom }}
           envFrom: {{ toYaml . | nindent 12 }}
