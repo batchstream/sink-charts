@@ -41,7 +41,7 @@ class ChartTests(unittest.TestCase):
         for doc in original.values():
             if doc["kind"] == "ConfigMap" and "sink.yaml" in doc.get("data", {}):
                 self.assertNotIn("logging", yaml.safe_load(doc["data"]["sink.yaml"]))
-        logging = {"level": "warn", "components": {"storage": "info"},
+        logging = {"level": "warn",
                    "console": {"enabled": True, "format": "json"},
                    "labels": {"environment": "test", "cluster": "fixture"},
                    "failure_body": True, "max_body_bytes": "32KiB",
@@ -51,7 +51,7 @@ class ChartTests(unittest.TestCase):
         for role in ["gateway", "engineDefaults", "workerDefaults"]:
             values[role] = {"runtime": {"logging": copy.deepcopy(logging)}}
         engine_override = {"failure_body": False, "console": {"enabled": False},
-                           "components": {"rpc": "debug"}, "otlp": {"tls": {"enabled": False}}}
+                           "otlp": {"tls": {"enabled": False}}}
         values["stores"]["mongo"]["engine"] = {"runtime": {"logging": engine_override}}
         worker_override = {"otlp": {"enabled": False}, "level": "error"}
         values["stores"]["mongo"]["worker"]["runtime"] = {"logging": worker_override}
@@ -59,7 +59,6 @@ class ChartTests(unittest.TestCase):
         engine = copy.deepcopy(logging)
         engine["failure_body"] = False
         engine["console"]["enabled"] = False
-        engine["components"]["rpc"] = "debug"
         engine["otlp"]["tls"]["enabled"] = False
         worker = copy.deepcopy(logging)
         worker["otlp"]["enabled"] = False
@@ -96,7 +95,7 @@ class ChartTests(unittest.TestCase):
 
     def test_logging_rejects_invalid_settings(self):
         invalid = [
-            {"level": "trace"}, {"components": {"unknown": "debug"}}, {"components": {"rpc": "trace"}},
+            {"level": "trace"}, {"components": {"rpc": "debug"}}, {"components": {}},
             {"console": {"format": "yaml"}}, {"console": {"enabled": False}}, {"unknown": True},
             {"labels": {"tenant": "test"}}, {"labels": {"pod": "line\nbreak"}},
             {"labels": {"pod": "雪" * 86}}, {"labels": {"cluster": 42}},
