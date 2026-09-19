@@ -94,11 +94,6 @@
         }
       }
     },
-    "requestTimeoutSeconds": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 300
-    },
     "lifecycle": {
       "type": "object",
       "additionalProperties": false,
@@ -215,20 +210,76 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "gateway": {
-              "type": "object"
-            },
-            "service": {
-              "type": "object"
-            },
             "grpc": {
-              "type": "object"
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "max_receive_message_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "max_send_message_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                }
+              }
             },
             "memory": {
               "$ref": "#/definitions/memoryCapacity"
             },
             "logging": {
               "$ref": "#/definitions/logging"
+            },
+            "forwarding": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "dns_refresh_interval": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "idle_timeout": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "max_connections": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "max_fanout": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "request": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_operations": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
             }
           }
         },
@@ -280,10 +331,6 @@
                   "type": "string",
                   "minLength": 1
                 },
-                "consumerGroup": {
-                  "type": "string",
-                  "minLength": 1
-                },
                 "partitions": {
                   "type": "integer",
                   "minimum": 1
@@ -307,12 +354,6 @@
                     "topic": {
                       "type": "object"
                     },
-                    "producer": {
-                      "type": "object"
-                    },
-                    "consumer": {
-                      "type": "object"
-                    },
                     "dead_letter": {
                       "type": "object"
                     }
@@ -322,7 +363,6 @@
               "required": [
                 "brokers",
                 "topic",
-                "consumerGroup",
                 "partitions"
               ]
             },
@@ -772,17 +812,206 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "service": {
-              "type": "object"
-            },
             "grpc": {
-              "type": "object"
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "max_receive_message_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "max_send_message_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                }
+              }
             },
             "memory": {
               "$ref": "#/definitions/memoryCapacity"
             },
             "logging": {
               "$ref": "#/definitions/logging"
+            },
+            "execution": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_snapshot_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "max_output_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "mongodb": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_concurrent_writes": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "max_concurrent_groups": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                },
+                "merge": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_attempts": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "lua": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "timeout": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "max_source_bytes": {
+                          "oneOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1024
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                            }
+                          ]
+                        },
+                        "max_result_bytes": {
+                          "oneOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1024
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                            }
+                          ]
+                        },
+                        "max_cached_programs": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "max_instructions": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "batching": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_wait": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "max_operations": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "max_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "queue": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_operations": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "max_bytes": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1024
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "producer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_buffered_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                }
+              }
             }
           }
         },
@@ -818,17 +1047,158 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "service": {
-              "type": "object"
-            },
-            "grpc": {
-              "type": "object"
-            },
             "memory": {
-              "$ref": "#/definitions/memoryCapacity"
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                }
+              }
             },
             "logging": {
               "$ref": "#/definitions/logging"
+            },
+            "execution": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_snapshot_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "max_output_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "mongodb": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_concurrent_writes": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "max_concurrent_groups": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                },
+                "merge": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_attempts": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "lua": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "timeout": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "max_source_bytes": {
+                          "oneOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1024
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                            }
+                          ]
+                        },
+                        "max_result_bytes": {
+                          "oneOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1024
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                            }
+                          ]
+                        },
+                        "max_cached_programs": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "max_instructions": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "consumer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "group_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "max_poll_records": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "processing_timeout": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "retry": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_attempts": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "backoff": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "max_backoff": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
             }
           }
         },
@@ -880,14 +1250,6 @@
             "metadataField": {
               "type": "string",
               "minLength": 1
-            },
-            "maxConcurrentWrites": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "maxConcurrentGroups": {
-              "type": "integer",
-              "minimum": 1
             }
           },
           "required": [
@@ -1201,15 +1563,15 @@
             },
             "flush_interval": {
               "type": "string",
-              "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))*$"
+              "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h))*$"
             },
             "export_timeout": {
               "type": "string",
-              "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))*$"
+              "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h))*$"
             },
             "shutdown_timeout": {
               "type": "string",
-              "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))*$"
+              "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h))*$"
             }
           }
         }

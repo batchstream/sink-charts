@@ -36,7 +36,7 @@ spec:
         {{- if eq $c.role "gateway" }}
         sink.batchstream.io/config-checksum: {{ include "sink.gatewayConfig" $ | sha256sum | quote }}
         {{- else }}
-        sink.batchstream.io/config-checksum: {{ include "sink.storeConfig" $c | sha256sum | quote }}
+        sink.batchstream.io/config-checksum: {{ printf "%s\n%s" (include "sink.roleConfig" $c) (include "sink.storeConfig" $c) | sha256sum | quote }}
         sink.batchstream.io/credential-revision: {{ $c.credentialRevision | quote }}
         {{- end }}
         {{- with $s.pod.annotations }}{{ toYaml . | nindent 8 }}{{- end }}
@@ -82,7 +82,7 @@ spec:
         - name: sink
           image: {{ if $image.digest }}{{ printf "%s@%s" $image.repository $image.digest | quote }}{{ else }}{{ printf "%s:%s" $image.repository $image.tag | quote }}{{ end }}
           imagePullPolicy: {{ $image.pullPolicy }}
-          args: ["--config", "/etc/sink/sink.yaml"]
+          args: ["--config", "/etc/sink/sink.yaml"{{ if ne $c.role "gateway" }}, "--store-config", "/etc/sink/store.yaml"{{ end }}]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -146,8 +146,14 @@ spec:
             {{- end }}
       volumes:
         - name: config
-          configMap:
-            name: {{ $name }}
+          projected:
+            sources:
+              - configMap:
+                  name: {{ $name }}
+              {{- if ne $c.role "gateway" }}
+              - configMap:
+                  name: {{ include "sink.componentName" (dict "root" $ "role" "store" "store" $c.store) }}
+              {{- end }}
         {{- if ne $c.role "gateway" }}
         {{- $sources := include "sink.secretSources" $c | fromJsonArray }}
         {{- if $sources }}

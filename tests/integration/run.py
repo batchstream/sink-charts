@@ -15,8 +15,7 @@ from urllib.parse import quote
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE_IMAGE = "ghcr.io/batchstream/sink:0.16.0"
-UPGRADE_IMAGE = "ghcr.io/batchstream/sink:0.18.0"
+UPGRADE_IMAGE = "ghcr.io/batchstream/sink:0.19.0"
 
 NODE = "kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0"
 
@@ -40,8 +39,8 @@ class Qualification:
             "engineDefaults": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"memory": "512Mi"}}}},
             "workerDefaults": {"pod": {"resources": {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"cpu": "200m", "memory": "512Mi"}}}},
             "stores": {"mongo": {"state": "active", "storage": self.storage("mongo-v1"), "engine": {},
-                "worker": {"enabled": True, "replicaCount": 0, "allowScaleToZero": True, "disruptionBudget": {"enabled": False}},
-                "kafka": {"brokers": ["kafka:9092"], "topic": "mongo-mutations", "consumerGroup": "mongo-workers", "partitions": 4, "lagThreshold": 100, "replicationFactor": 1, "minInSyncReplicas": 1}}},
+                "worker": {"runtime": {"consumer": {"group_id": "mongo-workers"}}, "enabled": True, "replicaCount": 0, "allowScaleToZero": True, "disruptionBudget": {"enabled": False}},
+                "kafka": {"brokers": ["kafka:9092"], "topic": "mongo-mutations", "partitions": 4, "lagThreshold": 100, "replicationFactor": 1, "minInSyncReplicas": 1}}},
         }
         if args.sink_image:
             self.values["image"] = {"repository": args.sink_image.rsplit(":", 1)[0], "tag": args.sink_image.rsplit(":", 1)[1], "digest": ""}
@@ -321,7 +320,7 @@ class Qualification:
         old_image = self.get("deployment", "qual-sink-gateway")["spec"]["template"]["spec"]["containers"][0]["image"]
         new_image = self.args.upgrade_image
         if old_image == new_image:
-            raise RuntimeError("mixed-version qualification requires two distinct images")
+            raise RuntimeError("rollout qualification requires two distinct image references from compatible builds")
         repository, tag = new_image.rsplit(":", 1)
         target = {"repository": repository, "tag": tag, "digest": ""}
         self.values["stores"]["mongo"]["worker"]["replicaCount"] = 1
@@ -448,8 +447,7 @@ def main():
     parser.add_argument("--kubeconfig", help="explicit owned Kind kubeconfig for development reuse; cluster is still deleted")
     args = parser.parse_args()
     if args.scenario == "upgrades" and not args.sink_image:
-        # Keep the previous chart's image as the baseline after advancing chart defaults.
-        args.sink_image = BASELINE_IMAGE
+        parser.error("upgrades requires --sink-image and a compatible --upgrade-image")
     for executable in ["kind", "kubectl", "helm", "docker", "go"]:
         if not shutil.which(executable):
             parser.error(f"required executable missing: {executable}")

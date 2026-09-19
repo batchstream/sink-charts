@@ -77,7 +77,7 @@ spec:
       {{- end }}
       metadata:
         bootstrapServers: {{ join "," $c.kafka.brokers | quote }}
-        consumerGroup: {{ $c.kafka.consumerGroup | quote }}
+        consumerGroup: {{ $c.settings.runtime.consumer.group_id | quote }}
         topic: {{ $c.kafka.topic | quote }}
         lagThreshold: {{ default 1000 $c.kafka.lagThreshold | quote }}
         activationLagThreshold: "0"

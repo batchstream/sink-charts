@@ -3,10 +3,10 @@ nameOverride: ""
 fullnameOverride: ""
 clusterDomain: cluster.local
 image:
-  # Pin the tested multi-architecture release digest.
+  # Requires the role-config release; override with a candidate image for pre-release testing.
   repository: ghcr.io/batchstream/sink
-  tag: "0.18.0"
-  digest: sha256:9a5cef79198cbda78e6c4b596746079c7633233393e20c9f70928c078a6429e2
+  tag: "0.19.0"
+  digest: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -20,7 +20,6 @@ discovery:
   safetyMarginSeconds: 10
   # Includes client DNS, load balancer, proxy and EndpointSlice propagation.
   clientWithdrawalSeconds: 60
-requestTimeoutSeconds: 30
 
 lifecycle:
   # Live Helm upgrades use the inventory ConfigMap and Pod/Deployment metadata.
@@ -54,8 +53,8 @@ gateway:
     # Additional runtime tuning; managed routing/listeners cannot be overridden.
     logging: {} # Sink 0.18+: level, components, console, labels, failure_body, max_body_bytes, otlp.
     memory: {} # Omit to auto-detect capacity; new memory-admission Sink builds only.
-    gateway: {}
-    service: {}
+    forwarding: {}
+    request: {}
     grpc: {}
   pod:
     configRevision: ""
@@ -117,7 +116,7 @@ gateway:
 engineDefaults:
   image: {} # Per-Store engine.image overrides these fields.
   replicaCount: 2
-  runtime: {logging: {}, memory: {}, service: {}, grpc: {}} # Nonsecret per-role tuning only.
+  runtime: {logging: {}, memory: {}, execution: {}, batching: {}, producer: {}, grpc: {}} # Per-Engine tuning.
   readiness: storage # storage | kafka | process; do not combine dependency restarts with liveness.
   pod:
     configRevision: "" # Bump to reload an in-place Secret change; prefer versioned Secret names.
@@ -177,7 +176,7 @@ workerDefaults:
   enabled: false # Enable together with the Store's Kafka settings.
   replicaCount: 2
   allowScaleToZero: false # Explicitly accept delayed application while scaled to zero.
-  runtime: {logging: {}, memory: {}, service: {}, grpc: {}}
+  runtime: {logging: {}, memory: {}, execution: {}, consumer: {}}
   pod:
     configRevision: ""
     annotations: {}
@@ -243,10 +242,8 @@ workerDefaults:
 #       mongodb:
 #         uriSecretRef: {name: orders-mongo-v1, key: uri}
 #         metadataField: __sink
-#         maxConcurrentWrites: 64
-#         maxConcurrentGroups: 16
 #     credentialRevision: "" # Roll both roles after an in-place Secret update.
-#     engine: {runtime: {memory: {}, service: {}, grpc: {}}}
+#     engine: {runtime: {execution: {mongodb: {max_concurrent_writes: 64}}}}
 #     worker: {enabled: false}
 # Add kafka metadata to enable async delivery; defaults: replicationFactor=3,
 # minInSyncReplicas=2. kafka.runtime carries additional nonsecret Kafka tuning.
