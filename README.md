@@ -6,8 +6,8 @@ configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
 One release deploys a Sink cluster: a shared Gateway and independently configured
-Engine and Worker Deployments for each Store. Chart `0.5.0` generates runtime
-configuration and references individual credential keys in external Secrets. It targets Sink **0.16.0**, SDK **0.8.0**, and
+Engine and Worker Deployments for each Store. Chart `0.6.0` generates runtime
+configuration and references individual credential keys in external Secrets. It targets Sink **0.18.0**, SDK **0.8.0**, and
 Kubernetes **1.30+** with native lifecycle sleep hooks enabled.
 
 - Stable Store names, generated headless discovery, staged activation and retirement.
@@ -50,6 +50,13 @@ of Store backend credentials. See the runbook for Sink Kafka authentication limi
 The image is pinned to a verified multi-architecture digest at
 `ghcr.io/batchstream/sink`. Override `image.repository` **and** `image.digest`
 together when moving artifacts. To select by tag, explicitly set `image.digest: ""`.
+When upgrading an existing Sink 0.16 installation to Chart 0.6, explicitly keep
+its current global image tag and digest in your values while advancing all Engines
+with `engineDefaults.image`. Wait for every old Engine Pod to exit before advancing
+`gateway.image`; advance Workers separately. See the
+[staged upgrade procedure](docs/operations.md#staged-image-upgrades).
+The new global default is intended for fresh installations or a completed staged upgrade.
+
 Chart 0.4 requires Sink 0.16+ and removes the complete-config Secret API from 0.2.
 Move ordinary configuration into Store values and create per-field credential
 Secrets before upgrading; the schema rejects the old `engine/worker.config` keys.
@@ -90,13 +97,13 @@ schemas and complete example configurations against the pinned Sink image.
 
 ### Demand-based memory admission
 
-Images that include the demand-based memory allocator (after Sink 0.16.0) accept
+The pinned Sink 0.18.0 image supports demand-based memory admission through
 `gateway.runtime.memory`, `engineDefaults.runtime.memory`, and
 `workerDefaults.runtime.memory`, with per-Store overrides under each role.
 The map supports `max_bytes`, `burst_percent` (1–99), and `wait_timeout`.
 Leave it empty for server automatic sizing and its measured 10% reserve default.
-Empty maps are omitted from generated YAML so the chart remains compatible with
-its pinned older image. Do not enable these fields on an older image.
+Empty maps are omitted from generated YAML, which also permits explicit legacy
+image overrides during staged upgrades. Keep these fields empty on Sink 0.16.0.
 
 [The memory KEDA overlay](examples/memory-keda-values.yaml) supplies managed-capacity
 pressure and temporary-rejection signals with `metricType: Value`. Install KEDA,
@@ -104,5 +111,5 @@ configure Prometheus scraping and adjust job/namespace selectors to one Gateway
 Deployment before enabling it. Engine selectors must also isolate the Store;
 Workers should retain Kafka lag triggers. Missing metrics must remain a scaler
 error rather than zero load. Upgrade Engines before Gateways for the private
-framed-response protocol; roll back Gateways first. This example does not change
-the pinned image or perform a cluster rollout.
+framed-response protocol; roll back Gateways first. Applying the example changes
+scaling configuration; plan and verify the rollout using the operational runbook.

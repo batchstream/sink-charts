@@ -5,8 +5,8 @@ Do not maintain a separate Sink config YAML. The chart renders every role's
 configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
-Chart 0.5.0 deploys one Gateway and independent Engine/Worker workloads per Store.
-It uses Sink 0.16.0 and requires Kubernetes 1.30+ with native lifecycle sleep hooks.
+Chart 0.6.0 deploys one Gateway and independent Engine/Worker workloads per Store.
+It uses Sink 0.18.0 and requires Kubernetes 1.30+ with native lifecycle sleep hooks.
 This replaces complete-config Secrets with ordinary values and per-field Secret references.
 
 The default empty `stores` map creates an inventory only. Before installing,
@@ -53,17 +53,21 @@ Image overrides are available at `gateway.image`, `engineDefaults.image`,
 `workerDefaults.image`, and `stores.<name>.engine.image` / `worker.image`.
 Fields inherit from the global `image`; Store overrides take precedence over role
 defaults. A tag override clears an inherited digest unless that override also
-supplies a digest. See the [upgrade procedure](https://github.com/batchstream/sink-charts/blob/v0.5.0/docs/operations.md#staged-image-upgrades)
+supplies a digest. See the [upgrade procedure](https://github.com/batchstream/sink-charts/blob/v0.6.0/docs/operations.md#staged-image-upgrades)
 for Engine-first upgrades and Gateway-first rollbacks across protocol changes.
+For an existing Sink 0.16 installation, explicitly retain its current global image
+tag and digest while upgrading Engines, then Gateways, then Workers. Wait for old
+Pods to exit at each stage before adopting the new global default. Keep memory
+settings empty on roles still running 0.16.0.
 
 Use `staged -> active -> retiring -> remove` for Store changes. Live Helm upgrades
 validate availability and drain transitions; offline GitOps rendering, rollback
 and uninstall require the documented external checks. Wait for Available replicas
 and terminating Pods, not only a successful `helm --wait`.
 
-- [Complete deployment examples](https://github.com/batchstream/sink-charts/tree/v0.5.0/examples)
-- [Operational runbook and configuration contract](https://github.com/batchstream/sink-charts/blob/v0.5.0/docs/operations.md)
-- [Source and qualification tests](https://github.com/batchstream/sink-charts/tree/v0.5.0)
+- [Complete deployment examples](https://github.com/batchstream/sink-charts/tree/v0.6.0/examples)
+- [Operational runbook and configuration contract](https://github.com/batchstream/sink-charts/blob/v0.6.0/docs/operations.md)
+- [Source and qualification tests](https://github.com/batchstream/sink-charts/tree/v0.6.0)
 
 Search authentication supports `usernameSecretRef` + `passwordSecretRef`, or
 `apiKeySecretRef`, each with `{name, key}`. Gateway never mounts Store credentials.

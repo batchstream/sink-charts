@@ -52,12 +52,13 @@ is still deleted on completion. Never point this option at a shared cluster.
 Use `--scenario scaling` to rerun only the Kafka/KEDA regression in a fresh cluster.
 
 Use `--sink-image repository:tag` to qualify an explicitly built local candidate.
-Only the disposable test cluster loads that image. Default runs use the pinned release.
+Only the disposable test cluster loads that image. Default deployment/scaling runs use the chart's pinned release; the upgrades
+scenario starts from the explicit legacy baseline below.
 
 ## Mixed-version upgrades
 
 CI also runs `make integration SCENARIO=upgrades` in a separate disposable Kind
-cluster. The checked pair is Sink 0.16.0 → 0.17.0 → 0.16.0, covering the private
+cluster. The checked pair is Sink 0.16.0 → 0.18.0 → 0.16.0, covering the private
 unary-to-streaming forwarding transition. Engines upgrade first, then Gateways;
 rollback restores Gateways before Engines. A 0.16.0 Worker remains active to
 check Kafka compatibility with each Engine version. Every stage waits for old

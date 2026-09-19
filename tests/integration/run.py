@@ -15,7 +15,8 @@ from urllib.parse import quote
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-UPGRADE_IMAGE = "ghcr.io/batchstream/sink:0.17.0"
+BASELINE_IMAGE = "ghcr.io/batchstream/sink:0.16.0"
+UPGRADE_IMAGE = "ghcr.io/batchstream/sink:0.18.0"
 
 NODE = "kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0"
 
@@ -167,7 +168,7 @@ class Qualification:
         self.log("owned CoreDNS positive cache enabled with 30-second TTL")
         # Reuse local public image cache without downloading or deleting shared images.
         cached = []
-        for image in [self.args.sink_image or "ghcr.io/batchstream/sink:0.16.0", self.args.upgrade_image, "mongo:8.2", "apache/kafka:4.2.1",
+        for image in [self.args.sink_image or UPGRADE_IMAGE, self.args.upgrade_image, "mongo:8.2", "apache/kafka:4.2.1",
                       "ghcr.io/kedacore/keda:2.20.0", "ghcr.io/kedacore/keda-metrics-apiserver:2.20.0",
                       "ghcr.io/kedacore/keda-admission-webhooks:2.20.0"]:
             inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
@@ -440,6 +441,9 @@ def main():
     parser.add_argument("--cluster", help="owned sink-chart-* name; defaults to a unique name")
     parser.add_argument("--kubeconfig", help="explicit owned Kind kubeconfig for development reuse; cluster is still deleted")
     args = parser.parse_args()
+    if args.scenario == "upgrades" and not args.sink_image:
+        # Keep the previous chart's image as the baseline after advancing chart defaults.
+        args.sink_image = BASELINE_IMAGE
     for executable in ["kind", "kubectl", "helm", "docker", "go"]:
         if not shutil.which(executable):
             parser.error(f"required executable missing: {executable}")
