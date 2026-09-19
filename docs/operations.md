@@ -132,6 +132,12 @@ those policies or silently expose a public LoadBalancer by default.
 
 ### Staged image upgrades
 
+Chart 0.6 defaults to Sink 0.18.0. Existing 0.16 installations must explicitly
+retain their current global `image.tag` and `image.digest` when moving to the new
+chart, then advance role images in the sequence below. Once every role uses the
+new release, the global default can replace those temporary role pins. Keep
+`runtime.memory` empty on roles still using 0.16.0.
+
 When a release changes the private forwarding protocol, upgrade every Engine
 before the Gateway. Kubernetes does not order Deployment rollouts inside one
 Helm upgrade. Sink builds using `ForwardStream` cannot call a v0.16.0 Engine;
