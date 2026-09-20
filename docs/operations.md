@@ -2,17 +2,18 @@
 
 ## Configuration and initial admission
 
-Chart 0.4 uses a shared `stores.<name>.storage` object for each Engine/Worker
+Chart 0.8 uses a shared `stores.<name>.storage` object for each Engine/Worker
 pair. **Maintain only values, not a separate Sink config YAML.** The chart generates
-the complete configuration for every role. It requires Sink 0.16.0+. The previous complete configuration Secret interface
+the complete configuration for every role. It requires Sink 0.19.0+. The previous complete configuration Secret interface
 has been removed. Store map keys remain stable Sink identities; changing a key
 creates a different Store. Only active Stores appear in the Gateway routes.
 
 Common operational values are an abstraction over Sink configuration: listener
 ports, time budgets, Store identity, Kafka policy and credentials are configured
 once and rendered consistently for each role. MongoDB tuning uses
-`metadataField` (default `__sink`), `maxConcurrentWrites` (64), and
-`maxConcurrentGroups` (16). Resource/memory limits, discovery convergence, rolling
+`storage.mongodb.metadataField` (default `__sink`), `maxConcurrentWrites` (64),
+and `maxConcurrentGroups` (16). Both roles reuse these settings; concurrency
+limits apply independently within each process. Resource/memory limits, discovery convergence, rolling
 surge and graceful exit have the defaults described below. Advanced tuning remains
 inside values under `runtime`; it never requires a separately maintained config file.
 
@@ -23,15 +24,28 @@ the headless discovery name `sink-sink-gateway-headless.sink.svc.cluster.local`.
 The latter is suitable for SDK client-side endpoint discovery. Renaming a release
 or namespace changes both names and is a cluster migration.
 
-The chart generates ordinary runtime YAML in ConfigMaps. It manages role, Store
-name, listener/metrics addresses, request and shutdown timeouts, and Kafka identity
-from values. `engineDefaults.runtime`, `workerDefaults.runtime`, and their per-Store
-overrides accept additional `service` and `grpc` tuning. `gateway.runtime` accepts
-additional Gateway tuning. Managed fields cannot be overridden there. Kafka
-brokers/topic/group/partitions and `replicationFactor` (default 3)/`minInSyncReplicas`
-(default 2) are shared with both roles; `kafka.runtime` accepts other supported
-topic/producer/consumer/dead_letter tuning. Validate tuning with the pinned Sink
-before deployment. KEDA uses the same broker/topic/group metadata.
+The chart renders one `store.yaml` ConfigMap per Store and one `sink.yaml` per
+role. Engine and Worker project the same Store ConfigMap and load it through
+`--store-config`. Component changes roll only the affected role; shared changes
+roll both. Gateway mounts only its own configuration.
+
+`runtime.execution`, `runtime.batching`, and `runtime.producer` tune Engine;
+`runtime.execution` and `runtime.consumer` tune Worker. Only Gateway accepts
+`runtime.request.max_operations` and `runtime.forwarding`. Worker memory exposes
+only `max_bytes`. Kafka brokers, Topic/DLQ and replication policy stay shared;
+`kafka.runtime` accepts `max_record_bytes`, `topic.retention`, and
+`dead_letter.name`/`dead_letter.retention`. Partitions, replication factor, minimum
+ISR (default `1`), and record size apply to both Topics; generated Store YAML places
+these shared settings directly under `kafka`. Worker group belongs to
+`stores.<name>.worker.runtime.consumer.group_id`, which KEDA also uses.
+
+Empty `engineDefaults.runtime.batching` inherits Sink's measured starting values:
+`max_operations: 32` and `max_wait: 2ms`. Memory watermarks default to 80% for rejection and 70% for recovery.
+The Chart does not emit duplicate overrides for these runtime defaults. Tune a
+Store through `stores.<name>.engine.runtime.batching`; the 32-operation batch
+target does not change Gateway's 1,000-operation public request limit. See
+[default selection](https://github.com/batchstream/sink/blob/main/docs/batching.md#default-selection)
+for the benchmark evidence and workload limits.
 
 ## Store credentials
 
@@ -132,16 +146,11 @@ those policies or silently expose a public LoadBalancer by default.
 
 ### Staged image upgrades
 
-Chart 0.7 defaults to Sink 0.18.0. Existing 0.16 installations must explicitly
-retain their current global `image.tag` and `image.digest` when moving to the new
-chart, then advance role images in the sequence below. Once every role uses the
-new release, the global default can replace those temporary role pins. Keep
-`runtime.memory` empty on roles still using 0.16.0.
-
-When a release changes the private forwarding protocol, upgrade every Engine
-before the Gateway. Kubernetes does not order Deployment rollouts inside one
-Helm upgrade. Sink builds using `ForwardStream` cannot call a v0.16.0 Engine;
-old Gateways can call the retained unary endpoint on new Engines.
+Chart 0.8 requires the new role/Store schema and private forwarding version in
+Sink 0.19. Deploy a separate matching cluster for an upgrade from 0.18 or older;
+the former mixed-version forwarding path is not supported across this boundary.
+The steps below apply only to builds with compatible configuration and forwarding
+protocols. Qualification accepts explicit baseline and target candidate images.
 
 Keep the global `image` pinned to the current release. In the first values
 revision, set `engineDefaults.image.digest` to the new release digest and apply
@@ -163,19 +172,24 @@ transition checks still apply independently.
 
 ### Drain timing
 
+Business RPCs have no implicit deadline. DNS withdrawal waits before SIGTERM,
+then `shutdownTimeoutSeconds` bounds graceful drain; an indefinitely waiting
+request can be interrupted when that shutdown bound expires. Configure it for
+operational needs and let clients choose request deadlines.
+
 The defaults encode the measured failure mechanism from Sink's qualification:
 a Gateway captures Engine membership for an accepted batch, so removing an endpoint
 from DNS alone does not make it safe to close its listener.
 
 ```
 Engine preStop >= endpoint publication + DNS cache + Gateway DNS refresh
-                 + lookup/retry allowance + maximum remaining request + margin
-Gateway preStop >= client/proxy/LB withdrawal + maximum remaining request + margin
+                 + lookup/retry allowance + margin
+Gateway preStop >= client/proxy/LB withdrawal + margin
 Pod termination grace >= preStop + whole-process shutdown budget + margin
 ```
 
-Default Engine: `5 + 30 + 10 + 10 + 30 + 10 = 95s` preStop, `255s` total grace.
-Default Gateway: `60 + 30 + 10 = 100s` preStop, `260s` total grace.
+Default Engine: `5 + 30 + 10 + 10 + 10 = 65s` preStop, `225s` total grace.
+Default Gateway: `60 + 10 = 70s` preStop, `230s` total grace.
 Worker: no preStop wait, `160s` grace, allowing prompt consumer departure.
 Each uses a 150s process shutdown budget and 10s final margin. The chart rejects
 shorter overrides and a process budget smaller than four configured shutdown
@@ -281,15 +295,17 @@ or milli-byte quantities are rejected. `GOMEMLIMIT` defaults to 80% of the conta
 memory limit, leaving headroom for non-Go memory. It is a soft Go runtime target,
 not an OOM guarantee. Do not override it through `env`; use `goMemoryLimitPercent`.
 
-Application queues, execution bytes, publish buffers, Kafka fetch sizes and gRPC
-message limits must fit the memory budget too. Set these in the supported `runtime.service`/`runtime.grpc`
-configuration and qualify representative maximum documents/fanout. Increasing
+Application queues, publish buffers, Kafka fetch sizes and gRPC
+message limits must fit the memory budget too. Set these in the supported `runtime.execution`/`runtime.batching`/`runtime.grpc`
+configuration and qualify representative maximum documents/fanout. Startup panics
+when its minimum working-memory estimate exceeds the high-watermark allowance;
+this is a sizing check, not an OOM guarantee. Increasing
 replicas cannot repair an overloaded database or Kafka partition. Budget peak
 resources as desired replicas **plus surge and terminating replicas**, multiplied
 by per-Pod requests, then add Kafka/backend/controllers and operational headroom.
 
 The prior fixed-resource benchmark is workload-specific, not a cluster sizing
-promise. Compare achieved throughput, p95/p99, rejection/error rate, queue age,
+promise. Compare achieved throughput, p65/p99, rejection/error rate, queue age,
 Kafka lag age and memory at a fixed total resource budget. Choose thresholds below
 sustained saturation with room for one replica's withdrawal. Observe backend pool
 and connection growth when scaling; more replicas may reduce useful throughput.

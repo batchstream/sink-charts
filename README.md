@@ -6,8 +6,8 @@ configuration with shared Store settings and managed operational defaults;
 external Secrets contain credential values only.
 
 One release deploys a Sink cluster: a shared Gateway and independently configured
-Engine and Worker Deployments for each Store. Chart `0.7.0` generates runtime
-configuration and references individual credential keys in external Secrets. It targets Sink **0.18.0**, SDK **0.8.0**, and
+Engine and Worker Deployments for each Store. Chart `0.8.0` generates runtime
+configuration and references individual credential keys in external Secrets. It targets Sink **0.19.0**, SDK **0.8.0**, and
 Kubernetes **1.30+** with native lifecycle sleep hooks enabled.
 
 - Stable Store names, generated headless discovery, staged activation and retirement.
@@ -23,6 +23,18 @@ The default empty `stores` map creates only an inventory ConfigMap. Follow
 budget assumptions, not a zero-error guarantee under arbitrary DNS/backend failures.
 
 ## Install
+
+This configuration requires Sink 0.19.0. Until that release is published, build
+its matching candidate and override `image.repository`, `image.tag`, and
+`image.digest: ""`. Do not pair Chart 0.8 with a 0.18 or older image.
+
+Each Store gets one `store.yaml` ConfigMap shared by Engine and Worker. Both roles
+load it using `--store-config`; their own `sink.yaml` holds only role tuning.
+Use `gateway.runtime.forwarding` / `request`, `engineDefaults.runtime.execution` /
+`batching` / `producer`, and `workerDefaults.runtime.execution` / `consumer`.
+Consumer group belongs in `stores.<name>.worker.runtime.consumer.group_id`.
+There is no service-wide request timeout; callers control request lifetime.
+
 
 Create the release namespace and provision `sink-mongo-v1` and `sink-archive-v1`
 Secrets there. Each example references a key named `uri` containing its complete
@@ -127,21 +139,18 @@ Rendering tests are offline. `make integration` is an explicit Docker/Kind test;
 see [tests/integration](tests/integration/README.md). CI also checks Kubernetes
 schemas and complete example configurations against the pinned Sink image.
 
-### Demand-based memory admission
+### Process memory admission
 
-The pinned Sink 0.18.0 image supports demand-based memory admission through
-`gateway.runtime.memory`, `engineDefaults.runtime.memory`, and
-`workerDefaults.runtime.memory`, with per-Store overrides under each role.
-The map supports `max_bytes`, `burst_percent` (1–99), and `wait_timeout`.
-Leave it empty for server automatic sizing and its measured 10% reserve default.
-Empty maps are omitted from generated YAML, which also permits explicit legacy
-image overrides during staged upgrades. Keep these fields empty on Sink 0.16.0.
+Sink 0.19.0 uses high/low watermarks through `gateway.runtime.memory`,
+`engineDefaults.runtime.memory`, and `workerDefaults.runtime.memory`, with per-Store
+overrides. Supported fields are `max_bytes`, `high_watermark_percent` (default 80),
+and `low_watermark_percent` (default 70). Require `0 < low < high < 100`.
+An empty map selects server defaults. Startup panics when estimated minimum
+working memory does not fit below the high watermark; larger gRPC/Lua/Kafka
+buffers may require larger Pod limits. See [server sizing](https://github.com/batchstream/sink/blob/main/docs/design/demand-based-admission.md).
 
-[The memory KEDA overlay](examples/memory-keda-values.yaml) supplies managed-capacity
-pressure and temporary-rejection signals with `metricType: Value`. Install KEDA,
-configure Prometheus scraping and adjust job/namespace selectors to one Gateway
-Deployment before enabling it. Engine selectors must also isolate the Store;
-Workers should retain Kafka lag triggers. Missing metrics must remain a scaler
-error rather than zero load. Upgrade Engines before Gateways for the private
-framed-response protocol; roll back Gateways first. Applying the example changes
-scaling configuration; plan and verify the rollout using the operational runbook.
+[The memory KEDA overlay](examples/memory-keda-values.yaml) uses observed memory
+pressure and RPC rejection ratios with `metricType: Value`. Configure Prometheus
+selectors for one role/Deployment/Store and retain Worker Kafka lag triggers.
+Missing data remains a scaler error. Gateway and Engine must use matching private
+protocol versions; incompatible versions require an isolated cutover.

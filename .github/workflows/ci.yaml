@@ -13,7 +13,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve-server:
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.resolve.outputs.revision }}
+    steps:
+      - id: resolve
+        env:
+          CANDIDATE_REF: ${{ github.head_ref || 'main' }}
+        run: |
+          remote=https://github.com/batchstream/sink.git
+          revision=$(git ls-remote --heads "$remote" "refs/heads/$CANDIDATE_REF" | awk '{print $1}')
+          if [[ -z "$revision" ]]; then
+            revision=$(git ls-remote --heads "$remote" refs/heads/main | awk '{print $1}')
+          fi
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
   validate:
+    needs: resolve-server
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -38,10 +56,20 @@ jobs:
           helm template sink ./charts/sink --kube-version 1.30.0 \
             -f examples/cluster-values.yaml -f examples/logging-values.yaml --set metrics.enabled=true \
             | kubeconform -strict -summary -kubernetes-version 1.30.0
-      - name: Check complete configurations with released Sink
-        run: python tests/check_runtime.py
+      - name: Check out matching Sink candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: batchstream/sink
+          path: sink-candidate
+          ref: ${{ needs.resolve-server.outputs.revision }}
+      - name: Check generated files with candidate parser
+        run: |
+          go -C sink-candidate build -o "$RUNNER_TEMP/sink" ./cmd/sink
+          python tests/check_runtime.py --sink-binary "$RUNNER_TEMP/sink"
+
 
   qualification:
+    needs: resolve-server
     name: Kubernetes qualification (${{ matrix.scenario }})
     strategy:
       fail-fast: false
@@ -65,8 +93,19 @@ jobs:
         run: |
           python -m pip install -r requirements-dev.txt
           go install sigs.k8s.io/kind@v0.33.0
+      - name: Check out matching Sink candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: batchstream/sink
+          path: sink-candidate
+          ref: ${{ needs.resolve-server.outputs.revision }}
+      - name: Build compatible rollout candidates
+        run: |
+          docker build --build-arg VERSION=chart-candidate-a -t sink-chart-candidate:a sink-candidate
+          docker build --build-arg VERSION=chart-candidate-b -t sink-chart-candidate:b sink-candidate
       - name: Qualify rollouts, Store lifecycle and KEDA with business traffic
-        run: make integration SCENARIO=${{ matrix.scenario }}
+        run: python tests/integration/run.py --scenario ${{ matrix.scenario }} --sink-image sink-chart-candidate:a --upgrade-image sink-chart-candidate:b
+
       - name: Preserve qualification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

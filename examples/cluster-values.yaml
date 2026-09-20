@@ -21,6 +21,9 @@ stores:
         maxReplicas: 8
     worker:
       enabled: true
+      runtime:
+        consumer:
+          group_id: mongo-workers-v1
       pod:
         resources:
           requests:
@@ -36,7 +39,6 @@ stores:
       brokers:
       - kafka.example.invalid:9092
       topic: mongo-mutations-v1
-      consumerGroup: mongo-workers-v1
       partitions: 8
       lagThreshold: 1000
     # Same credential projection and backend settings for both roles.
