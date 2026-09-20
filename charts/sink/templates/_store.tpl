@@ -19,8 +19,6 @@
 {{- $storage := dict "driver" .storage.driver -}}
 {{- if eq .storage.driver "mongodb" -}}
 {{- $mongo := dict "metadata_field" (default "__sink" .storage.mongodb.metadataField) -}}
-{{- $_ := set $mongo "max_concurrent_writes" (default 64 .storage.mongodb.maxConcurrentWrites) -}}
-{{- $_ := set $mongo "max_concurrent_groups" (default 16 .storage.mongodb.maxConcurrentGroups) -}}
 {{- $_ := set $mongo "uri_file" "/etc/sink-secrets/mongodb-uri" -}}
 {{- $_ := set $storage "mongodb" $mongo -}}
 {{- else -}}
@@ -35,19 +33,23 @@
 {{- end -}}
 {{- $config := dict "name" .store "storage" $storage -}}
 {{- if .kafka -}}
-{{- $kafka := deepCopy (default dict .kafka.runtime) -}}
-{{- $managed := dict "enabled" true "brokers" .kafka.brokers "partitions" .kafka.partitions "replication_factor" (default 3 .kafka.replicationFactor) "min_insync_replicas" (default 1 .kafka.minInSyncReplicas) "topic" (dict "name" .kafka.topic) -}}
-{{- $_ := set $config "kafka" (mergeOverwrite $kafka $managed) -}}
+{{- $policy := .kafka.topicPolicy -}}
+{{- $kafka := dict "enabled" true "brokers" .kafka.brokers "partitions" $policy.partitions "replication_factor" (default 3 $policy.replicationFactor) "min_insync_replicas" (default 1 $policy.minInSyncReplicas) "topic" .kafka.topic -}}
+{{- with .kafka.deadLetterTopic -}}{{- $_ := set $kafka "dead_letter" . -}}{{- end -}}
+{{- with .kafka.maxRecordBytes -}}{{- $_ := set $kafka "max_record_bytes" . -}}{{- end -}}
+{{- $_ := set $config "kafka" $kafka -}}
 {{- end -}}
 {{- toYaml $config -}}
 {{- end -}}
 
 {{- define "sink.roleConfig" -}}
-{{- $config := deepCopy .settings.runtime -}}
+{{- $config := include "sink.configFields" .settings.config | fromJson -}}
+{{- with $config.merge -}}{{- $_ := set $config "execution" (dict "merge" .) -}}{{- end -}}
+{{- $_ := unset $config "merge" -}}
 {{- $_ := set $config "mode" .role -}}
 {{- $_ := set $config "health" (dict "address" ":8081") -}}
 {{- $_ := set $config "prometheus" (dict "enabled" .root.Values.metrics.enabled "address" ":9090") -}}
-{{- $_ := set $config "shutdown_timeout" (printf "%ds" (int .settings.pod.shutdownTimeoutSeconds)) -}}
+{{- $_ := set $config "shutdown_timeout" (printf "%ds" (int .settings.rollout.shutdownTimeoutSeconds)) -}}
 {{- if eq .role "engine" -}}
 {{- $_ := set $config "grpc" (mergeOverwrite (default dict $config.grpc) (dict "address" ":8080")) -}}
 {{- end -}}

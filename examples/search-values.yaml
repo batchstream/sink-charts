@@ -1,17 +1,25 @@
-# Provision these Secrets in the release namespace; never put real passwords here.
+# Search Store examples. Provision referenced credential keys externally.
 stores:
   catalog:
-    state: active
+    phase: active
     storage:
       driver: opensearch
       search:
-        endpoints: [https://opensearch.example.invalid:9200]
-        usernameSecretRef: {name: catalog-auth-v1, key: username}
-        passwordSecretRef: {name: catalog-auth-v1, key: password}
+        endpoints:
+          - https://opensearch.example.invalid:9200
+        usernameSecretRef:
+          name: catalog-auth-v1
+          key: username
+        passwordSecretRef:
+          name: catalog-auth-v1
+          key: password
   events:
-    state: active
+    phase: active
     storage:
       driver: elasticsearch
       search:
-        endpoints: [https://elasticsearch.example.invalid:9200]
-        apiKeySecretRef: {name: events-auth-v1, key: api-key}
+        endpoints:
+          - https://elasticsearch.example.invalid:9200
+        apiKeySecretRef:
+          name: events-auth-v1
+          key: api-key

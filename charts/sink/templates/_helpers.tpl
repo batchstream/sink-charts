@@ -25,51 +25,32 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- $items := list -}}
 {{- $active := false -}}
 {{- range $store, $settings := .Values.stores -}}
-{{- if eq $settings.state "active" -}}{{- $active = true -}}{{- end -}}
-{{- $engine := mergeOverwrite (deepCopy $.Values.engineDefaults) (default dict $settings.engine) -}}
-{{- $worker := mergeOverwrite (deepCopy $.Values.workerDefaults) (default dict $settings.worker) -}}
+{{- if eq $settings.phase "active" -}}{{- $active = true -}}{{- end -}}
+{{- $engine := mergeOverwrite (deepCopy $.Values.defaults.engine) (default dict $settings.engine) -}}
+{{- $worker := mergeOverwrite (deepCopy $.Values.defaults.worker) (default dict $settings.worker) -}}
 {{- $items = append $items (dict "role" "engine" "store" $store "settings" $engine "storage" $settings.storage "credentialRevision" (default "" $settings.credentialRevision) "kafka" (default dict $settings.kafka)) -}}
 {{- if $worker.enabled -}}{{- $items = append $items (dict "role" "worker" "store" $store "settings" $worker "storage" $settings.storage "credentialRevision" (default "" $settings.credentialRevision) "kafka" (default dict $settings.kafka)) -}}{{- end -}}
 {{- end -}}
 {{- if $active -}}{{- $items = prepend $items (dict "role" "gateway" "store" "" "settings" .Values.gateway "kafka" dict) -}}{{- end -}}
 {{- toJson $items -}}
 {{- end -}}
-{{- define "sink.componentImage" -}}
-{{- $layers := list .root.Values.image -}}
-{{- if eq .role "gateway" -}}
-{{- $layers = append $layers (default dict .root.Values.gateway.image) -}}
-{{- else -}}
-{{- $defaults := index .root.Values (printf "%sDefaults" .role) -}}
-{{- $store := index .root.Values.stores .store -}}
-{{- $layers = append $layers (default dict $defaults.image) -}}
-{{- $layers = append $layers (dig .role "image" dict $store) -}}
-{{- end -}}
-{{- $image := dict -}}
-{{- range $layer := $layers -}}
-{{- if and (hasKey $layer "tag") (not (hasKey $layer "digest")) -}}
-{{- $_ := set $image "digest" "" -}}
-{{- end -}}
-{{- $image = mergeOverwrite $image (deepCopy $layer) -}}
-{{- end -}}
-{{- toJson $image -}}
-{{- end -}}
 {{- define "sink.discoverySeconds" -}}
-{{- $d := .Values.discovery -}}
-{{- add $d.endpointPublicationSeconds $d.dnsCacheSeconds $d.dnsRefreshSeconds $d.lookupBackoffSeconds -}}
+{{- $d := .Values.cluster.discovery -}}
+{{- add $d.endpointPropagationSeconds $d.dnsCacheTTLSeconds $d.dnsRefreshSeconds $d.dnsRetryBackoffSeconds -}}
 {{- end -}}
 {{- define "sink.preStop" -}}
 {{- $minimum := 0 -}}
-{{- if eq .role "engine" -}}{{- $minimum = add (include "sink.discoverySeconds" .root | int) .root.Values.discovery.safetyMarginSeconds -}}{{- end -}}
-{{- if eq .role "gateway" -}}{{- $minimum = add .root.Values.discovery.clientWithdrawalSeconds .root.Values.discovery.safetyMarginSeconds -}}{{- end -}}
+{{- if eq .role "engine" -}}{{- $minimum = add (include "sink.discoverySeconds" .root | int) .root.Values.cluster.discovery.safetyMarginSeconds -}}{{- end -}}
+{{- if eq .role "gateway" -}}{{- $minimum = add .root.Values.cluster.discovery.clientEndpointRemovalSeconds .root.Values.cluster.discovery.safetyMarginSeconds -}}{{- end -}}
 {{- $seconds := $minimum -}}
-{{- if ne .settings.pod.preStopSeconds nil -}}{{- $seconds = int .settings.pod.preStopSeconds -}}{{- end -}}
-{{- if lt (int $seconds) (int $minimum) -}}{{- fail (printf "%s/%s preStopSeconds must be >= %d (discovery + margin)" .role .store $minimum) -}}{{- end -}}
+{{- if ne .settings.rollout.preStopDelaySeconds nil -}}{{- $seconds = int .settings.rollout.preStopDelaySeconds -}}{{- end -}}
+{{- if lt (int $seconds) (int $minimum) -}}{{- fail (printf "%s/%s preStopDelaySeconds must be >= %d (discovery + margin)" .role .store $minimum) -}}{{- end -}}
 {{- $seconds -}}
 {{- end -}}
 {{- define "sink.grace" -}}
-{{- $minimum := add (include "sink.preStop" . | int) .settings.pod.shutdownBudgetSeconds .root.Values.discovery.safetyMarginSeconds -}}
+{{- $minimum := add (include "sink.preStop" . | int) .settings.rollout.shutdownBudgetSeconds .root.Values.cluster.discovery.safetyMarginSeconds -}}
 {{- $seconds := $minimum -}}
-{{- if ne .settings.pod.terminationGracePeriodSeconds nil -}}{{- $seconds = int .settings.pod.terminationGracePeriodSeconds -}}{{- end -}}
+{{- if ne .settings.rollout.terminationGracePeriodSeconds nil -}}{{- $seconds = int .settings.rollout.terminationGracePeriodSeconds -}}{{- end -}}
 {{- if lt (int $seconds) (int $minimum) -}}{{- fail (printf "%s/%s terminationGracePeriodSeconds must be >= %d" .role .store $minimum) -}}{{- end -}}
 {{- $seconds -}}
 {{- end -}}
@@ -83,17 +64,19 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- define "sink.gatewayConfig" -}}
 {{- $routes := list -}}
 {{- range $store, $settings := .Values.stores -}}
-{{- if eq $settings.state "active" -}}
+{{- if eq $settings.phase "active" -}}
 {{- $name := include "sink.componentName" (dict "root" $ "role" "engine" "store" $store) -}}
-{{- $routes = append $routes (dict "store" $store "target" (printf "dns:///%s.%s.svc.%s:8080" $name $.Release.Namespace $.Values.clusterDomain) "tls" (dict "insecure" true)) -}}
+{{- $routes = append $routes (dict "store" $store "target" (printf "dns:///%s.%s.svc.%s:8080" $name $.Release.Namespace $.Values.cluster.domain) "tls" (dict "insecure" true)) -}}
 {{- end -}}
 {{- end -}}
-{{- $gateway := mergeOverwrite (deepCopy .Values.gateway.runtime.forwarding) (dict "routes" $routes "dns_refresh_interval" (printf "%ds" (int .Values.discovery.dnsRefreshSeconds))) -}}
-{{- $grpc := mergeOverwrite (deepCopy .Values.gateway.runtime.grpc) (dict "address" ":8080") -}}
-{{- $config := (dict "mode" "gateway" "forwarding" $gateway "grpc" $grpc "health" (dict "address" ":8081") "prometheus" (dict "enabled" .Values.metrics.enabled "address" ":9090") "shutdown_timeout" (printf "%ds" (int .Values.gateway.pod.shutdownTimeoutSeconds))) -}}
-{{- with .Values.gateway.runtime.request -}}{{- $_ := set $config "request" . -}}{{- end -}}
-{{- with .Values.gateway.runtime.memory -}}{{- $_ := set $config "memory" . -}}{{- end -}}
-{{- with .Values.gateway.runtime.logging -}}{{- $_ := set $config "logging" . -}}{{- end -}}
+{{- $config := include "sink.configFields" .Values.gateway.config | fromJson -}}
+{{- $_ := set $config "forwarding" (mergeOverwrite (default dict $config.forwarding) (dict "routes" $routes "dns_refresh_interval" (printf "%ds" (int .Values.cluster.discovery.dnsRefreshSeconds)))) -}}
+{{- $_ := set $config "grpc" (mergeOverwrite (default dict $config.grpc) (dict "address" ":8080")) -}}
+{{- $_ := set $config "mode" "gateway" -}}
+{{- $_ := set $config "health" (dict "address" ":8081") -}}
+{{- $_ := set $config "prometheus" (dict "enabled" .Values.metrics.enabled "address" ":9090") -}}
+{{- $_ := set $config "shutdown_timeout" (printf "%ds" (int .Values.gateway.rollout.shutdownTimeoutSeconds)) -}}
+{{- range $key, $value := $config -}}{{- if empty $value -}}{{- $_ := unset $config $key -}}{{- end -}}{{- end -}}
 {{- toYaml $config -}}
 {{- end -}}
 {{- define "sink.behavior" -}}

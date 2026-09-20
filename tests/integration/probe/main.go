@@ -103,7 +103,8 @@ func run(opts options) (report, error) {
 				records = append(records, record)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_, err := dataset.Create(ctx, sink.CompletionReturnAfterAccepted, records...)
+			request := sink.NewDatasetWriteRequest(records...).WithCompletionMode(sink.CompletionReturnAfterAccepted)
+			_, err := dataset.Create(ctx, request)
 			cancel()
 			if err != nil {
 				return result, err
@@ -124,14 +125,16 @@ func run(opts options) (report, error) {
 		value := document{ID: fmt.Sprint(index), Value: index}
 		record := sink.Record{Key: sink.StringKey(value.ID), Value: value}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := dataset.Create(ctx, sink.CompletionWaitUntilApplied, record)
+		writeRequest := sink.NewDatasetWriteRequest(record)
+		_, err := dataset.Create(ctx, writeRequest)
 		cancel()
 		if err != nil {
 			return result, fmt.Errorf("create %d: %w", index, err)
 		}
 		result.Acknowledged++
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		found, err := dataset.Read(ctx, record.Key)
+		readRequest := sink.NewDatasetReadRequest(record.Key)
+		found, err := dataset.Read(ctx, readRequest)
 		cancel()
 		if err != nil {
 			return result, fmt.Errorf("immediate read %d: %w", index, err)
@@ -152,7 +155,8 @@ func verify(dataset *sink.Dataset, count int) (int, error) {
 			keys = append(keys, sink.StringKey(fmt.Sprint(index)))
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		found, err := dataset.Read(ctx, keys...)
+		request := sink.NewDatasetReadRequest(keys...)
+		found, err := dataset.Read(ctx, request)
 		cancel()
 		if err != nil {
 			return verified, err

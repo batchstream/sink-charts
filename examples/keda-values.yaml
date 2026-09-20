@@ -1,31 +1,31 @@
-# Overlay examples/cluster-values.yaml. Install KEDA separately first.
+# Overlay cluster-values.yaml after installing KEDA. Scale Workers on Kafka lag.
 stores:
   mongo:
     worker:
-      allowScaleToZero: true
-      disruptionBudget: {enabled: false}
       autoscaling:
         mode: keda
         minReplicas: 0
-        maxReplicas: 8 # Cannot exceed kafka.partitions.
+        maxReplicas: 8
         keda:
           pollingInterval: 15
           cooldownPeriod: 300
           initialCooldownPeriod: 60
-          kafkaTrigger:
+          kafkaLag:
             name: mongo-lag
             useCachedMetrics: true
-          # Kafka lag trigger is generated. Optional authentication reference:
-          # authenticationRef: {name: kafka-scaler-auth}
+            targetLag: 1000 # Records per Worker.
+            # authenticationRef: {name: kafka-scaler-auth}
           fallback:
             failureThreshold: 3
             replicas: 2
             behavior: currentReplicasIfHigher
-          # Additional triggers can keep Workers running during known busy hours.
           triggers:
             - type: cron
               metadata:
                 timezone: UTC
-                start: "0 8 * * 1-5"
-                end: "0 18 * * 1-5"
-                desiredReplicas: "2"
+                start: 0 8 * * 1-5
+                end: 0 18 * * 1-5
+                desiredReplicas: '2'
+        allowScaleToZero: true
+      podDisruptionBudget:
+        enabled: false

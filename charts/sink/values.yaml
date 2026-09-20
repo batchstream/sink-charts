@@ -1,33 +1,34 @@
-# One release manages a Gateway and independently scaled Engines/Workers per Store.
-nameOverride: ""
-fullnameOverride: ""
-clusterDomain: cluster.local
+# Values are the only configuration source. The chart generates Sink YAML.
+# Chart keys use camelCase; durations use strings such as 2ms and 30s.
+# Byte limits accept integer bytes or KiB/MiB/GiB; Pod memory uses Ki/Mi/Gi.
+# Empty config maps inherit Sink defaults. No backend or controller is installed.
+
+nameOverride: ''
+fullnameOverride: ''
+
+# One shared image and registry configuration for every Gateway, Engine and Worker.
 image:
-  # Requires the role-config release; override with a candidate image for pre-release testing.
   repository: ghcr.io/batchstream/sink
-  tag: "0.19.0"
-  digest: ""
+  tag: 0.19.0
+  digest: ''
   pullPolicy: IfNotPresent
-imagePullSecrets: []
+  pullSecrets: []
 
-# Integer seconds make the relationship between discovery and termination explicit.
-# These are conservative assumptions, not measurements of your cluster.
-discovery:
-  dnsRefreshSeconds: 10
-  endpointPublicationSeconds: 5
-  dnsCacheSeconds: 30
-  lookupBackoffSeconds: 10
-  safetyMarginSeconds: 10
-  # Includes client DNS, load balancer, proxy and EndpointSlice propagation.
-  clientWithdrawalSeconds: 60
+# Cluster-wide DNS assumptions and Store lifecycle checks.
+cluster:
+  domain: cluster.local
+  discovery:
+    dnsRefreshSeconds: 10
+    endpointPropagationSeconds: 5
+    dnsCacheTTLSeconds: 30
+    dnsRetryBackoffSeconds: 10
+    safetyMarginSeconds: 10
+    clientEndpointRemovalSeconds: 60
+  storeLifecycle:
+    enforceTransitions: true
+    removalApprovals: [] # Store names approved for removal after writers/Kafka/DLQ drain.
 
-lifecycle:
-  # Live Helm upgrades use the inventory ConfigMap and Pod/Deployment metadata.
-  # helm template cannot perform these checks; see the GitOps runbook.
-  enforceTransitions: true
-  # Explicit operator confirmation after stopping writers and draining Kafka/DLQ.
-  removalApprovals: []
-
+# Metrics listeners and optional Prometheus Operator discovery.
 metrics:
   enabled: false
   serviceMonitor:
@@ -36,217 +37,267 @@ metrics:
     interval: 30s
     scrapeTimeout: 10s
 
-# No cluster-wide controllers or backend databases are installed by this chart.
+# Shared public gRPC entry point. Created when at least one Store is active.
 gateway:
-  image: {} # Overrides global image; roll Engines before advancing the Gateway.
-  replicaCount: 2
+  replicas: 2
   service:
     type: ClusterIP
     port: 8080
     annotations: {}
-    # Stable Pod-address discovery for gRPC clients using dns:/// and round_robin.
-    # The name is <Helm release>-sink-gateway-headless and excludes the chart version.
     headless:
       enabled: true
       annotations: {}
-  runtime:
-    # Additional runtime tuning; managed routing/listeners cannot be overridden.
-    logging: {} # Sink 0.18+: level, components, console, labels, failure_body, max_body_bytes, otlp.
-    memory: {} # Omit to detect the process ceiling; high/low watermarks default to 80%/70%.
+  # Application settings; listeners, routes and identity are generated.
+  config:
+    logging: {}
+    memory: {}
     forwarding: {}
-    request: {}
+    requestLimits: {}
     grpc: {}
+  # Container resources, environment, labels and scheduling.
   pod:
-    configRevision: ""
     annotations: {}
     labels: {}
     resources:
-      requests: {cpu: 250m, memory: 256Mi}
-      limits: {memory: 512Mi}
-    goMemoryLimitPercent: 80
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+    goMemoryLimitPercent: 80 # GOMEMLIMIT as a percentage of the Pod memory limit.
     env: []
     envFrom: []
-    minReadySeconds: 10
-    shutdownTimeoutSeconds: 30
-    # Whole SIGTERM-to-exit budget, including sequential shutdown phases.
-    shutdownBudgetSeconds: 150
-    preStopSeconds: null # null derives the minimum; smaller overrides fail.
-    terminationGracePeriodSeconds: null # null derives preStop + shutdown + margin.
-    serviceAccountAnnotations: {}
     nodeSelector: {}
     tolerations: []
     affinity: {}
     topologySpreadConstraints: [] # Empty enables soft node/zone spread.
-    priorityClassName: ""
+    priorityClassName: ''
+  serviceAccount:
+    annotations: {}
+  # Readiness and bounded graceful termination; budgets are seconds.
+  rollout:
+    minReadySeconds: 10
+    shutdownTimeoutSeconds: 30 # Timeout for each application shutdown phase.
+    shutdownBudgetSeconds: 150 # Total SIGTERM-to-exit budget, including OTLP flush.
+    preStopDelaySeconds: null # null derives the minimum delay from cluster.discovery.
+    terminationGracePeriodSeconds: null # null derives preStop + shutdown budget + margin.
+    restartRevision: '' # Change to force a restart when mounted data changes in place.
+  # mode: none | hpa | keda. Only the selected controller manages replicas.
   autoscaling:
-    mode: none # none | hpa | keda; exactly one controller owns replicas.
+    mode: none
     minReplicas: 2
     maxReplicas: 6
-    cpuUtilization: 70
-    memoryUtilization: 0
+    targetCPUUtilizationPercent: 70
+    targetMemoryUtilizationPercent: 0
     extraMetrics: []
     behavior:
       scaleUp:
         stabilizationWindowSeconds: 0
         selectPolicy: Max
         policies:
-          - {type: Percent, value: 100, periodSeconds: 60}
-          - {type: Pods, value: 2, periodSeconds: 60}
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+          - type: Pods
+            value: 2
+            periodSeconds: 60
       scaleDown:
         stabilizationWindowSeconds: 300
         selectPolicy: Min
         policies:
-          - {type: Pods, value: 1, periodSeconds: 300}
+          - type: Pods
+            value: 1
+            periodSeconds: 300
     keda:
       pollingInterval: 30
       cooldownPeriod: 300
       initialCooldownPeriod: 0
       annotations: {}
-      hpaName: ""
+      hpaName: ''
       restoreToOriginalReplicaCount: false
-      triggers: [] # Empty uses CPU for Gateway/Engine; Worker uses its Kafka topic.
-      authenticationRef: {}
-      fallback: {} # Optional {failureThreshold: 3, replicas: 2, behavior: currentReplicasIfHigher}.
-      kafkaTrigger: {name: kafka-lag, useCachedMetrics: true}
-  disruptionBudget:
+      triggers: []
+      fallback: {}
+  podDisruptionBudget:
     enabled: true
     maxUnavailable: 1
 
-# Stores inherit these defaults. Every nested field can be overridden per Store.
-engineDefaults:
-  image: {} # Per-Store engine.image overrides these fields.
-  replicaCount: 2
-  # Inherit Sink defaults: batching max_operations=32, max_wait=2ms; memory high/low watermarks=80%/70%.
-  runtime: {logging: {}, memory: {}, execution: {}, batching: {}, producer: {}, grpc: {}} # Per-Engine tuning.
-  readiness: storage # storage | kafka | process; do not combine dependency restarts with liveness.
-  pod:
-    configRevision: "" # Bump to reload an in-place Secret change; prefer versioned Secret names.
-    annotations: {}
-    labels: {}
-    resources:
-      requests: {cpu: 500m, memory: 512Mi}
-      limits: {memory: 1Gi}
-    goMemoryLimitPercent: 80
-    env: []
-    envFrom: []
-    minReadySeconds: 10 # Effective minimum also covers discovery convergence.
-    shutdownTimeoutSeconds: 30 # Generated into the runtime configuration.
-    shutdownBudgetSeconds: 150
-    preStopSeconds: null
-    terminationGracePeriodSeconds: null
-    serviceAccountAnnotations: {}
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-    topologySpreadConstraints: []
-    priorityClassName: ""
-  autoscaling:
-    mode: none
-    minReplicas: 2
-    maxReplicas: 6
-    cpuUtilization: 70
-    memoryUtilization: 0
-    extraMetrics: []
-    behavior:
-      scaleUp:
-        stabilizationWindowSeconds: 0
-        selectPolicy: Max
-        policies:
-          - {type: Percent, value: 100, periodSeconds: 60}
-          - {type: Pods, value: 2, periodSeconds: 60}
-      scaleDown:
-        stabilizationWindowSeconds: 300
-        selectPolicy: Min
-        policies:
-          - {type: Pods, value: 1, periodSeconds: 300}
-    keda:
-      pollingInterval: 30
-      cooldownPeriod: 300
-      initialCooldownPeriod: 0
+# Per-role defaults. stores.<name>.engine/worker recursively override their own role.
+defaults:
+  engine:
+    replicas: 2
+    # Application settings; listeners, routes and identity are generated.
+    config:
+      logging: {}
+      memory: {}
+      batching: {}
+      kafkaProducer: {}
+      grpc: {}
+    # Container resources, environment, labels and scheduling.
+    pod:
       annotations: {}
-      hpaName: ""
-      restoreToOriginalReplicaCount: false
-      triggers: []
-      authenticationRef: {}
-      fallback: {}
-      kafkaTrigger: {name: kafka-lag, useCachedMetrics: true}
-  disruptionBudget: {enabled: true, maxUnavailable: 1}
-
-workerDefaults:
-  image: {} # Per-Store worker.image overrides these fields.
-  enabled: false # Enable together with the Store's Kafka settings.
-  replicaCount: 2
-  allowScaleToZero: false # Explicitly accept delayed application while scaled to zero.
-  runtime: {logging: {}, memory: {}, execution: {}, consumer: {}}
-  pod:
-    configRevision: ""
-    annotations: {}
-    labels: {}
-    resources:
-      requests: {cpu: 500m, memory: 512Mi}
-      limits: {memory: 1Gi}
-    goMemoryLimitPercent: 80
-    env: []
-    envFrom: []
-    minReadySeconds: 10
-    shutdownTimeoutSeconds: 30
-    shutdownBudgetSeconds: 150
-    preStopSeconds: null # Workers leave the consumer group promptly; default 0.
-    terminationGracePeriodSeconds: null
-    serviceAccountAnnotations: {}
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-    topologySpreadConstraints: []
-    priorityClassName: ""
-  autoscaling:
-    mode: none
-    minReplicas: 2
-    maxReplicas: 4
-    cpuUtilization: 70
-    memoryUtilization: 0
-    extraMetrics: []
-    behavior:
-      scaleUp:
-        stabilizationWindowSeconds: 0
-        selectPolicy: Max
-        policies:
-          - {type: Percent, value: 100, periodSeconds: 60}
-          - {type: Pods, value: 2, periodSeconds: 60}
-      scaleDown:
-        stabilizationWindowSeconds: 300
-        selectPolicy: Min
-        policies:
-          - {type: Pods, value: 1, periodSeconds: 300}
-    keda:
-      pollingInterval: 30
-      cooldownPeriod: 300
-      initialCooldownPeriod: 0
+      labels: {}
+      resources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+      goMemoryLimitPercent: 80 # GOMEMLIMIT as a percentage of the Pod memory limit.
+      env: []
+      envFrom: []
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: [] # Empty enables soft node/zone spread.
+      priorityClassName: ''
+    serviceAccount:
       annotations: {}
-      hpaName: ""
-      restoreToOriginalReplicaCount: false
-      triggers: []
-      authenticationRef: {}
-      fallback: {}
-      kafkaTrigger: {name: kafka-lag, useCachedMetrics: true}
-  disruptionBudget: {enabled: true, maxUnavailable: 1}
+    # Readiness and bounded graceful termination; budgets are seconds.
+    rollout:
+      minReadySeconds: 10
+      shutdownTimeoutSeconds: 30 # Timeout for each application shutdown phase.
+      shutdownBudgetSeconds: 150 # Total SIGTERM-to-exit budget, including OTLP flush.
+      preStopDelaySeconds: null # null derives the minimum delay from cluster.discovery.
+      terminationGracePeriodSeconds: null # null derives preStop + shutdown budget + margin.
+      restartRevision: '' # Change to force a restart when mounted data changes in place.
+      readinessCheck: storage # storage | kafka | process; Engine only.
+    # mode: none | hpa | keda. Only the selected controller manages replicas.
+    autoscaling:
+      mode: none
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercent: 70
+      targetMemoryUtilizationPercent: 0
+      extraMetrics: []
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          selectPolicy: Max
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 60
+            - type: Pods
+              value: 2
+              periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          selectPolicy: Min
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 300
+      keda:
+        pollingInterval: 30
+        cooldownPeriod: 300
+        initialCooldownPeriod: 0
+        annotations: {}
+        hpaName: ''
+        restoreToOriginalReplicaCount: false
+        triggers: []
+        fallback: {}
+    podDisruptionBudget:
+      enabled: true
+      maxUnavailable: 1
+  worker:
+    enabled: false
+    replicas: 2
+    # Application settings; listeners, routes and identity are generated.
+    config:
+      logging: {}
+      memory: {}
+      kafkaConsumer: {}
+    # Container resources, environment, labels and scheduling.
+    pod:
+      annotations: {}
+      labels: {}
+      resources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+      goMemoryLimitPercent: 80 # GOMEMLIMIT as a percentage of the Pod memory limit.
+      env: []
+      envFrom: []
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: [] # Empty enables soft node/zone spread.
+      priorityClassName: ''
+    serviceAccount:
+      annotations: {}
+    # Readiness and bounded graceful termination; budgets are seconds.
+    rollout:
+      minReadySeconds: 10
+      shutdownTimeoutSeconds: 30 # Timeout for each application shutdown phase.
+      shutdownBudgetSeconds: 150 # Total SIGTERM-to-exit budget, including OTLP flush.
+      preStopDelaySeconds: null # null derives the minimum delay from cluster.discovery.
+      terminationGracePeriodSeconds: null # null derives preStop + shutdown budget + margin.
+      restartRevision: '' # Change to force a restart when mounted data changes in place.
+    # mode: none | hpa | keda. Only the selected controller manages replicas.
+    autoscaling:
+      mode: none
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercent: 70
+      targetMemoryUtilizationPercent: 0
+      extraMetrics: []
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          selectPolicy: Max
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 60
+            - type: Pods
+              value: 2
+              periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          selectPolicy: Min
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 300
+      keda:
+        pollingInterval: 30
+        cooldownPeriod: 300
+        initialCooldownPeriod: 0
+        annotations: {}
+        hpaName: ''
+        restoreToOriginalReplicaCount: false
+        triggers: []
+        fallback: {}
+        kafkaLag:
+          name: kafka-lag
+          useCachedMetrics: true
+          authenticationRef: {}
+          targetLag: 1000 # Unprocessed records per Worker for the generated Kafka scaler.
+      allowScaleToZero: false # Worker only; permits delayed processing at zero replicas.
+    podDisruptionBudget:
+      enabled: true
+      maxUnavailable: 1
 
-# Store keys are stable Sink identities, not array positions. See examples/cluster-values.yaml.
-# Lifecycle: staged (backends only) -> active (routed) -> retiring (unrouted, retained) -> remove.
-# Do not rename Store keys, Kafka topics/groups or backend targets in place.
+# Stable Store identities; clients select these names. Start additions as staged.
+# Each Store requires phase (staged | active | retiring) and storage.
 # Example:
 # stores:
 #   orders:
-#     state: staged
+#     phase: staged
 #     storage:
 #       driver: mongodb
 #       mongodb:
 #         uriSecretRef: {name: orders-mongo-v1, key: uri}
-#         metadataField: __sink
-#         maxConcurrentWrites: 64 # Per process; both roles use this Store policy.
-#         maxConcurrentGroups: 16
-#     credentialRevision: "" # Roll both roles after an in-place Secret update.
-#     worker: {enabled: false}
-# Add kafka metadata to enable async delivery; defaults: replicationFactor=3,
-# minInSyncReplicas=1. kafka.runtime carries additional nonsecret Kafka tuning.
+#     kafka:
+#       brokers: [kafka:9092]
+#       topic: {name: orders-mutations, retention: 72h}
+#       deadLetterTopic: {name: orders-rejected, retention: 720h}
+#       topicPolicy: {partitions: 8, replicationFactor: 3, minInSyncReplicas: 1}
+#     worker:
+#       enabled: true
+#       config:
+#         kafkaConsumer: {groupId: orders-workers}
+# See the packaged README for all fields and examples/ for complete overlays.
 stores: {}

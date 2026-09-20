@@ -8,7 +8,8 @@ make integration PYTHON=.venv/bin/python
 ```
 
 The runner creates a unique `sink-chart-*` Kind cluster with Kubernetes 1.35.8,
-uses its own temporary kubeconfig/context, builds a small SDK 0.8.0 business probe,
+uses its own temporary kubeconfig/context, builds a business probe pinned to
+sink-go v0.10.0 for the matching streaming protocol and typed request API,
 and puts the test release, Mongo, Kafka and KEDA 2.20 in `sink-chart-test` inside that
 owned cluster. Its CoreDNS TTL is set to 30 seconds to exercise the chart
 cache budget; KEDA CRDs are installed only there. No current/default Kubernetes
@@ -60,21 +61,19 @@ Only the disposable test cluster loads that image. Default deployment/scaling
 runs require the chart's matching 0.19 release. Before release, pass a locally
 built role-config candidate. `upgrades` requires an explicit baseline candidate.
 
-## Mixed-version upgrades
+## Shared image upgrades and rollback
 
 CI builds two differently version-stamped images from the matching candidate and
 runs `--scenario upgrades --sink-image sink-chart-candidate:a --upgrade-image sink-chart-candidate:b`
-in a separate disposable Kind cluster, covering the private
-unary-to-streaming forwarding transition. Engines upgrade first, then Gateways;
-rollback restores Gateways before Engines. A 0.16.0 Worker remains active to
-check Kafka compatibility with each Engine version. Every stage waits for old
-Pods to terminate, records the actual deployment image combination, and verifies
-fresh synchronous and asynchronous records. A persistent SDK client continues
-creating and reading throughout all four rollouts without mutation retries;
-its complete acknowledged history is reconciled at the end. Premature traffic
-completion fails the scenario rather than silently skipping later transitions.
+in a separate disposable Kind cluster. Each values revision changes only the
+top-level `image`: all Gateways, Engines and Workers upgrade together, then roll
+back together. Both revisions wait for old Pods to terminate, record each
+Deployment's image, and verify fresh synchronous and asynchronous records.
+A persistent SDK client continues creating and reading throughout both rollouts
+without mutation retries; its complete acknowledged history is reconciled at
+the end. Premature traffic completion fails the scenario.
 
 Evidence includes `version-matrix.json`, per-stage business reports and the
-continuous traffic report. The matrix establishes this explicit version pair,
-not arbitrary cross-version compatibility. `--sink-image` and `--upgrade-image`
-can qualify another explicit pair; maintain the documented compatibility order.
+continuous traffic report. The test qualifies the specific compatible image pair.
+Use `--sink-image` and `--upgrade-image` to qualify another pair; incompatible
+configuration, forwarding or Kafka formats require a separate cluster cutover.
