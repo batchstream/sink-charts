@@ -1,10 +1,10 @@
 {{- range $component := include "sink.components" . | fromJsonArray }}
 {{- $c := merge (dict "root" $) $component }}
 {{- $s := $c.settings }}
-{{- $image := include "sink.componentImage" $c | fromJson }}
+{{- $image := $.Values.image }}
 {{- $name := include "sink.componentName" $c }}
 {{- $preStop := include "sink.preStop" $c | int }}
-{{- $readySeconds := int $s.pod.minReadySeconds }}
+{{- $readySeconds := int $s.rollout.minReadySeconds }}
 {{- if eq $c.role "engine" }}{{- $readySeconds = max $readySeconds (include "sink.discoverySeconds" $ | int) }}{{- end }}
 ---
 apiVersion: apps/v1
@@ -15,7 +15,7 @@ metadata:
     {{- include "sink.labels" $c | nindent 4 }}
 spec:
   {{- if eq $s.autoscaling.mode "none" }}
-  replicas: {{ $s.replicaCount }}
+  replicas: {{ $s.replicas }}
   {{- end }}
   revisionHistoryLimit: 3
   minReadySeconds: {{ $readySeconds }}
@@ -32,7 +32,7 @@ spec:
         {{- include "sink.selector" $c | nindent 8 }}
         {{- with $s.pod.labels }}{{ toYaml . | nindent 8 }}{{- end }}
       annotations:
-        sink.batchstream.io/config-revision: {{ $s.pod.configRevision | quote }}
+        sink.batchstream.io/config-revision: {{ $s.rollout.restartRevision | quote }}
         {{- if eq $c.role "gateway" }}
         sink.batchstream.io/config-checksum: {{ include "sink.gatewayConfig" $ | sha256sum | quote }}
         {{- else }}
@@ -50,7 +50,7 @@ spec:
         runAsGroup: 65532
         fsGroup: 65532
         seccompProfile: {type: RuntimeDefault}
-      {{- with $.Values.imagePullSecrets }}
+      {{- with $.Values.image.pullSecrets }}
       imagePullSecrets: {{ toYaml . | nindent 8 }}
       {{- end }}
       {{- with $s.pod.priorityClassName }}
@@ -125,8 +125,8 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              {{- if and (eq $c.role "engine") (ne $s.readiness "process") }}
-              path: {{ printf "/readyz?service=sink.%s.%s" $s.readiness $c.store | quote }}
+              {{- if and (eq $c.role "engine") (ne $s.rollout.readinessCheck "process") }}
+              path: {{ printf "/readyz?service=sink.%s.%s" $s.rollout.readinessCheck $c.store | quote }}
               {{- else }}
               path: /readyz
               {{- end }}

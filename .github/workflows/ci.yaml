@@ -50,6 +50,8 @@ jobs:
         with:
           go-version: '1.27.0'
           cache: false
+      - name: Compile business probe against the released SDK
+        run: go -C tests/integration/probe build -mod=readonly -o "$RUNNER_TEMP/sink-chart-probe" .
       - name: Validate Kubernetes resource schemas
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0

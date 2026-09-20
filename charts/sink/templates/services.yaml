@@ -8,7 +8,7 @@ kind: ServiceAccount
 metadata:
   name: {{ $name }}
   labels: {{ include "sink.labels" $c | nindent 4 }}
-  {{- with $s.pod.serviceAccountAnnotations }}
+  {{- with $s.serviceAccount.annotations }}
   annotations: {{ toYaml . | nindent 4 }}
   {{- end }}
 automountServiceAccountToken: false
@@ -58,7 +58,7 @@ spec:
       targetPort: grpc
       appProtocol: kubernetes.io/h2c
 {{- end }}
-{{- if $s.disruptionBudget.enabled }}
+{{- if $s.podDisruptionBudget.enabled }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -66,7 +66,7 @@ metadata:
   name: {{ $name }}
   labels: {{ include "sink.labels" $c | nindent 4 }}
 spec:
-  maxUnavailable: {{ $s.disruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ $s.podDisruptionBudget.maxUnavailable }}
   selector:
     matchLabels: {{ include "sink.selector" $c | nindent 6 }}
 {{- end }}

@@ -1,26 +1,72 @@
-# Overlay on cluster-values.yaml; replace the example Collector and labels.
-# Sink 0.18+ only. Empty runtime.logging preserves Sink defaults on older images.
+# Overlay cluster-values.yaml. Replace Collector endpoint and deployment labels.
+# TLS defaults to enabled. includeFailureBody may include document content.
 gateway:
-  runtime:
-    logging: &logging
+  config:
+    logging:
       level: warn
-      console: {enabled: true, format: text}
-      labels: {environment: production, cluster: example-cluster}
-      failure_body: false
-      max_body_bytes: 16KiB
+      console:
+        enabled: true
+        format: text
+      labels:
+        environment: production
+        cluster: example-cluster
+      includeFailureBody: false
+      maxBodyBytes: 16KiB
       otlp:
         enabled: true
         protocol: grpc
         endpoint: otel-collector.observability.svc.cluster.local:4317
-        tls: {enabled: true}
-        queue_size: 1024
-        batch_size: 128
-        flush_interval: 1s
-        export_timeout: 3s
-        shutdown_timeout: 5s
-engineDefaults:
-  runtime:
-    logging: *logging
-workerDefaults:
-  runtime:
-    logging: *logging
+        tls:
+          enabled: true
+        queueSize: 1024
+        batchSize: 128
+        flushInterval: 1s
+        exportTimeout: 3s
+        shutdownTimeout: 5s
+defaults:
+  engine:
+    config:
+      logging:
+        level: warn
+        console:
+          enabled: true
+          format: text
+        labels:
+          environment: production
+          cluster: example-cluster
+        includeFailureBody: false
+        maxBodyBytes: 16KiB
+        otlp:
+          enabled: true
+          protocol: grpc
+          endpoint: otel-collector.observability.svc.cluster.local:4317
+          tls:
+            enabled: true
+          queueSize: 1024
+          batchSize: 128
+          flushInterval: 1s
+          exportTimeout: 3s
+          shutdownTimeout: 5s
+  worker:
+    config:
+      logging:
+        level: warn
+        console:
+          enabled: true
+          format: text
+        labels:
+          environment: production
+          cluster: example-cluster
+        includeFailureBody: false
+        maxBodyBytes: 16KiB
+        otlp:
+          enabled: true
+          protocol: grpc
+          endpoint: otel-collector.observability.svc.cluster.local:4317
+          tls:
+            enabled: true
+          queueSize: 1024
+          batchSize: 128
+          flushInterval: 1s
+          exportTimeout: 3s
+          shutdownTimeout: 5s

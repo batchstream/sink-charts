@@ -1,25 +1,26 @@
 {{- $inventoryName := include "sink.name" (dict "raw" (printf "%s-inventory" (include "sink.base" .))) }}
 {{- $previous := dict }}
 {{- $hasInventory := false }}
-{{- if .Values.lifecycle.enforceTransitions }}
+{{- if .Values.cluster.storeLifecycle.enforceTransitions }}
 {{- $inventory := lookup "v1" "ConfigMap" .Release.Namespace $inventoryName }}
 {{- if $inventory }}{{- $previous = fromJson $inventory.data.stores }}{{- $hasInventory = true }}{{- end }}
 {{- end }}
 {{- $current := dict }}
 {{- $topics := dict }}{{- $groups := dict }}
 {{- range $store, $settings := .Values.stores }}
-{{- $engine := mergeOverwrite (deepCopy $.Values.engineDefaults) (default dict $settings.engine) }}
-{{- $worker := mergeOverwrite (deepCopy $.Values.workerDefaults) (default dict $settings.worker) }}
-{{- $kafka := omit (default dict $settings.kafka) "lagThreshold" "runtime" }}
-{{- if $kafka }}{{- $_ := set $kafka "consumerGroup" (default "" $worker.runtime.consumer.group_id) }}{{- end }}
-{{- $kafkaRuntime := default dict (default dict $settings.kafka).runtime }}
-{{- $deadLetter := default dict $kafkaRuntime.dead_letter }}
-{{- with $deadLetter.name }}{{- $_ := set $kafka "deadLetterTopic" . }}{{- end }}
+{{- $engine := mergeOverwrite (deepCopy $.Values.defaults.engine) (default dict $settings.engine) }}
+{{- $worker := mergeOverwrite (deepCopy $.Values.defaults.worker) (default dict $settings.worker) }}
+{{- $kafka := dict }}
+{{- with $settings.kafka }}
+{{- $policy := dict "partitions" .topicPolicy.partitions "replicationFactor" (default 3 .topicPolicy.replicationFactor) "minInSyncReplicas" (default 1 .topicPolicy.minInSyncReplicas) }}
+{{- $deadLetter := default (printf "%s.dlq" (trim .topic.name)) (dig "deadLetterTopic" "name" "" .) }}
+{{- $kafka = dict "brokers" .brokers "topic" .topic.name "topicPolicy" $policy "deadLetterTopic" $deadLetter "consumerGroup" (default "" $worker.config.kafkaConsumer.groupId) }}
+{{- end }}
 {{- $engineConfig := include "sink.roleConfig" (dict "root" $ "role" "engine" "store" $store "settings" $engine "storage" $settings.storage "kafka" (default dict $settings.kafka)) }}
-{{- $entry := dict "state" $settings.state "kafka" $kafka "workerEnabled" $worker.enabled "engineHash" (toJson (dict "engine" $engine "storage" $settings.storage "kafkaRuntime" (default dict $settings.kafka) "credentialRevision" (default "" $settings.credentialRevision) "runtime" $engineConfig "image" $.Values.image "discovery" $.Values.discovery) | sha256sum) }}
+{{- $entry := dict "phase" $settings.phase "kafka" $kafka "workerEnabled" $worker.enabled "engineHash" (toJson (dict "engine" $engine "storage" $settings.storage "kafkaRuntime" (default dict $settings.kafka) "credentialRevision" (default "" $settings.credentialRevision) "runtime" $engineConfig "image" $.Values.image "discovery" $.Values.cluster.discovery) | sha256sum) }}
 {{- $_ := set $current $store $entry }}
 {{- if $kafka }}
-{{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "deadLetterTopic" "value" (default (printf "%s.dlq" (trim $kafka.topic)) $deadLetter.name) "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
+{{- range $pair := list (dict "name" "topic" "value" $kafka.topic "seen" $topics) (dict "name" "deadLetterTopic" "value" $kafka.deadLetterTopic "seen" $topics) (dict "name" "consumerGroup" "value" $kafka.consumerGroup "seen" $groups) }}
 {{- $identity := trim $pair.value }}
 {{- if $identity }}
 {{- if hasKey $pair.seen $identity }}{{- fail (printf "Kafka %s must be unique per Store" $pair.name) }}{{- end }}
@@ -30,18 +31,18 @@
 {{- if $hasInventory }}
 {{- $old := get $previous $store }}
 {{- if not $old }}
-{{- if ne $settings.state "staged" }}{{- fail (printf "new Store %s must first be staged" $store) }}{{- end }}
+{{- if ne $settings.phase "staged" }}{{- fail (printf "new Store %s must first be staged" $store) }}{{- end }}
 {{- else }}
 {{- if ne (toJson $old.kafka) (toJson $kafka) }}{{- fail (printf "Store %s Kafka identity/policy is immutable; drain and migrate explicitly" $store) }}{{- end }}
-{{- if and (ne $old.state "staged") (eq $settings.state "staged") }}{{- fail "previously routed Stores cannot return to staged; use retiring" }}{{- end }}
-{{- if and $old.workerEnabled (not $worker.enabled) (not (and (eq $settings.state "retiring") (has $store $.Values.lifecycle.removalApprovals))) }}{{- fail "disabling a Worker requires retiring and an explicit removalApproval after draining" }}{{- end }}
-{{- if and (eq $settings.state "active") (ne $old.state "active") }}
+{{- if and (ne $old.phase "staged") (eq $settings.phase "staged") }}{{- fail "previously routed Stores cannot return to staged; use retiring" }}{{- end }}
+{{- if and $old.workerEnabled (not $worker.enabled) (not (and (eq $settings.phase "retiring") (has $store $.Values.cluster.storeLifecycle.removalApprovals))) }}{{- fail "disabling a Worker requires retiring and an explicit removalApproval after draining" }}{{- end }}
+{{- if and (eq $settings.phase "active") (ne $old.phase "active") }}
 {{- if ne $old.engineHash $entry.engineHash }}{{- fail (printf "Store %s activation must be a separate upgrade after Engine configuration converges" $store) }}{{- end }}
 {{- $engineName := include "sink.componentName" (dict "root" $ "role" "engine" "store" $store) }}
 {{- $deployment := lookup "apps/v1" "Deployment" $.Release.Namespace $engineName }}
 {{- $status := default dict $deployment.status }}
 {{- $spec := default dict $deployment.spec }}
-{{- $minimum := int $engine.replicaCount }}
+{{- $minimum := int $engine.replicas }}
 {{- if ne $engine.autoscaling.mode "none" }}{{- $minimum = int $engine.autoscaling.minReplicas }}{{- end }}
 {{- $desired := max $minimum (int (default 1 $spec.replicas)) }}
 {{- if or (not $deployment) (lt (int (default 0 $status.observedGeneration)) (int $deployment.metadata.generation)) (lt (int (default 0 $status.availableReplicas)) (int $desired)) (ne (int (default 0 $status.updatedReplicas)) (int $desired)) }}{{- fail (printf "Store %s Engine is not fully available; wait before activating" $store) }}{{- end }}
@@ -51,9 +52,9 @@
 {{- end }}
 {{- range $store, $old := $previous }}
 {{- if not (hasKey $current $store) }}
-{{- if eq $old.state "active" }}{{- fail (printf "Store %s must be retiring before removal" $store) }}{{- end }}
-{{- if not (has $store $.Values.lifecycle.removalApprovals) }}{{- fail (printf "Store %s removal requires lifecycle.removalApprovals after writer/Kafka/DLQ drain" $store) }}{{- end }}
-{{- if eq $old.state "retiring" }}
+{{- if eq $old.phase "active" }}{{- fail (printf "Store %s must be retiring before removal" $store) }}{{- end }}
+{{- if not (has $store $.Values.cluster.storeLifecycle.removalApprovals) }}{{- fail (printf "Store %s removal requires cluster.storeLifecycle.removalApprovals after writer/Kafka/DLQ drain" $store) }}{{- end }}
+{{- if eq $old.phase "retiring" }}
 {{- $gatewayName := include "sink.componentName" (dict "root" $ "role" "gateway" "store" "") }}
 {{- $gateway := lookup "apps/v1" "Deployment" $.Release.Namespace $gatewayName }}
 {{- $pods := lookup "v1" "Pod" $.Release.Namespace "" }}
@@ -78,7 +79,7 @@ metadata:
 data:
   stores: {{ toJson $current | quote }}
 {{- $active := false }}
-{{- range .Values.stores }}{{- if eq .state "active" }}{{- $active = true }}{{- end }}{{- end }}
+{{- range .Values.stores }}{{- if eq .phase "active" }}{{- $active = true }}{{- end }}{{- end }}
 {{- if $active }}
 ---
 apiVersion: v1

@@ -12,11 +12,6 @@
       "minLength": 0,
       "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
     },
-    "clusterDomain": {
-      "type": "string",
-      "minLength": 0,
-      "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
-    },
     "image": {
       "type": "object",
       "additionalProperties": false,
@@ -40,6 +35,22 @@
             "IfNotPresent",
             "Never"
           ]
+        },
+        "pullSecrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
         }
       },
       "required": [
@@ -48,64 +59,59 @@
         "pullPolicy"
       ]
     },
-    "imagePullSecrets": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1
+    "cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 0,
+          "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+        },
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dnsRefreshSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "endpointPropagationSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "dnsCacheTTLSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "dnsRetryBackoffSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "safetyMarginSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "clientEndpointRemovalSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
-        "required": [
-          "name"
-        ]
-      }
-    },
-    "discovery": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "dnsRefreshSeconds": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "endpointPublicationSeconds": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "dnsCacheSeconds": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "lookupBackoffSeconds": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "safetyMarginSeconds": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "clientWithdrawalSeconds": {
-          "type": "integer",
-          "minimum": 0
-        }
-      }
-    },
-    "lifecycle": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enforceTransitions": {
-          "type": "boolean"
-        },
-        "removalApprovals": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 0
+        "storeLifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enforceTransitions": {
+              "type": "boolean"
+            },
+            "removalApprovals": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 0
+              }
+            }
           }
         }
       }
@@ -149,7 +155,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "replicaCount": {
+        "replicas": {
           "type": "integer",
           "minimum": 0
         },
@@ -159,8 +165,8 @@
         "autoscaling": {
           "$ref": "#/definitions/autoscaling"
         },
-        "disruptionBudget": {
-          "$ref": "#/definitions/disruptionBudget"
+        "podDisruptionBudget": {
+          "$ref": "#/definitions/podDisruptionBudget"
         },
         "service": {
           "type": "object",
@@ -206,7 +212,7 @@
             }
           }
         },
-        "runtime": {
+        "config": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -214,10 +220,7 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "address": {
-                  "type": "string"
-                },
-                "max_receive_message_bytes": {
+                "maxReceiveMessageBytes": {
                   "oneOf": [
                     {
                       "type": "integer",
@@ -229,7 +232,7 @@
                     }
                   ]
                 },
-                "max_send_message_bytes": {
+                "maxSendMessageBytes": {
                   "oneOf": [
                     {
                       "type": "integer",
@@ -253,29 +256,25 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "dns_refresh_interval": {
+                "idleTimeout": {
                   "type": "string",
                   "minLength": 1
                 },
-                "idle_timeout": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "max_connections": {
+                "maxConnections": {
                   "type": "integer",
                   "minimum": 1
                 },
-                "max_fanout": {
+                "maxFanout": {
                   "type": "integer",
                   "minimum": 1
                 }
               }
             },
-            "request": {
+            "requestLimits": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "max_operations": {
+                "maxOperations": {
                   "type": "integer",
                   "minimum": 1
                 }
@@ -283,16 +282,25 @@
             }
           }
         },
-        "image": {
-          "$ref": "#/definitions/imageOverride"
+        "rollout": {
+          "$ref": "#/definitions/rollout"
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
         }
       }
     },
-    "engineDefaults": {
-      "$ref": "#/definitions/engineDefaults"
-    },
-    "workerDefaults": {
-      "$ref": "#/definitions/workerDefaults"
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "$ref": "#/definitions/engine"
+        },
+        "worker": {
+          "$ref": "#/definitions/worker"
+        }
+      }
     },
     "stores": {
       "type": "object",
@@ -302,7 +310,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "state": {
+            "phase": {
               "enum": [
                 "staged",
                 "active",
@@ -310,10 +318,10 @@
               ]
             },
             "engine": {
-              "$ref": "#/definitions/engineDefaults"
+              "$ref": "#/definitions/engine"
             },
             "worker": {
-              "$ref": "#/definitions/workerDefaults"
+              "$ref": "#/definitions/worker"
             },
             "kafka": {
               "type": "object",
@@ -328,72 +336,74 @@
                   }
                 },
                 "topic": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "partitions": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "lagThreshold": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "replicationFactor": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "minInSyncReplicas": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "runtime": {
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
-                    "topic": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "retention": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      }
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
                     },
-                    "dead_letter": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "name": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "retention": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      }
+                    "retention": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ]
+                },
+                "topicPolicy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "partitions": {
+                      "type": "integer",
+                      "minimum": 1
                     },
-                    "max_record_bytes": {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 1
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[1-9][0-9]*(B|KiB|MiB|GiB)?$"
-                        }
-                      ]
+                    "replicationFactor": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "minInSyncReplicas": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "required": [
+                    "partitions"
+                  ]
+                },
+                "deadLetterTopic": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "retention": {
+                      "type": "string",
+                      "minLength": 1
                     }
                   }
+                },
+                "maxRecordBytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(B|KiB|MiB|GiB)?$"
+                    }
+                  ]
                 }
               },
               "required": [
                 "brokers",
                 "topic",
-                "partitions"
+                "topicPolicy"
               ]
             },
             "storage": {
@@ -404,7 +414,7 @@
             }
           },
           "required": [
-            "state",
+            "phase",
             "storage"
           ]
         }
@@ -417,10 +427,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "configRevision": {
-          "type": "string",
-          "minLength": 0
-        },
         "annotations": {
           "type": "object",
           "additionalProperties": {
@@ -523,50 +529,6 @@
             "type": "object"
           }
         },
-        "minReadySeconds": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3600
-        },
-        "shutdownTimeoutSeconds": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 300
-        },
-        "shutdownBudgetSeconds": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 3600
-        },
-        "preStopSeconds": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": 0
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "terminationGracePeriodSeconds": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": 0
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "serviceAccountAnnotations": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string",
-            "minLength": 0
-          }
-        },
         "nodeSelector": {
           "type": "object",
           "additionalProperties": {
@@ -614,12 +576,12 @@
           "type": "integer",
           "minimum": 1
         },
-        "cpuUtilization": {
+        "targetCPUUtilizationPercent": {
           "type": "integer",
           "minimum": 0,
           "maximum": 1000
         },
-        "memoryUtilization": {
+        "targetMemoryUtilizationPercent": {
           "type": "integer",
           "minimum": 0,
           "maximum": 100
@@ -696,32 +658,6 @@
                 ]
               }
             },
-            "authenticationRef": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "kind": {
-                  "enum": [
-                    "TriggerAuthentication",
-                    "ClusterTriggerAuthentication"
-                  ]
-                }
-              },
-              "anyOf": [
-                {
-                  "maxProperties": 0
-                },
-                {
-                  "required": [
-                    "name"
-                  ]
-                }
-              ]
-            },
             "fallback": {
               "type": "object",
               "additionalProperties": false,
@@ -742,18 +678,7 @@
                     "currentReplicasIfLower"
                   ]
                 }
-              },
-              "anyOf": [
-                {
-                  "maxProperties": 0
-                },
-                {
-                  "required": [
-                    "failureThreshold",
-                    "replicas"
-                  ]
-                }
-              ]
+              }
             },
             "initialCooldownPeriod": {
               "type": "integer",
@@ -774,375 +699,11 @@
             },
             "restoreToOriginalReplicaCount": {
               "type": "boolean"
-            },
-            "kafkaTrigger": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "minLength": 0,
-                  "maxLength": 253,
-                  "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$"
-                },
-                "useCachedMetrics": {
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "name",
-                "useCachedMetrics"
-              ]
             }
           }
         },
         "behavior": {
           "$ref": "#/definitions/scalingBehavior"
-        }
-      }
-    },
-    "disruptionBudget": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "maxUnavailable": {
-          "type": "integer",
-          "minimum": 0
-        }
-      }
-    },
-    "engineDefaults": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "replicaCount": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "pod": {
-          "$ref": "#/definitions/pod"
-        },
-        "autoscaling": {
-          "$ref": "#/definitions/autoscaling"
-        },
-        "disruptionBudget": {
-          "$ref": "#/definitions/disruptionBudget"
-        },
-        "readiness": {
-          "enum": [
-            "storage",
-            "kafka",
-            "process"
-          ]
-        },
-        "runtime": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "grpc": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "address": {
-                  "type": "string"
-                },
-                "max_receive_message_bytes": {
-                  "oneOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 1024
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                    }
-                  ]
-                },
-                "max_send_message_bytes": {
-                  "oneOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 1024
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                    }
-                  ]
-                }
-              }
-            },
-            "memory": {
-              "$ref": "#/definitions/memoryCapacity"
-            },
-            "logging": {
-              "$ref": "#/definitions/logging"
-            },
-            "execution": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "merge": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "max_attempts": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "lua": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "timeout": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "max_source_bytes": {
-                          "oneOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 1024
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                            }
-                          ]
-                        },
-                        "max_result_bytes": {
-                          "oneOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 1024
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                            }
-                          ]
-                        },
-                        "max_cached_programs": {
-                          "type": "integer",
-                          "minimum": 1
-                        },
-                        "max_instructions": {
-                          "type": "integer",
-                          "minimum": 1
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "batching": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "max_wait": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "max_operations": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "max_bytes": {
-                  "oneOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 1024
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                    }
-                  ]
-                },
-                "queue": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "max_operations": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "max_bytes": {
-                      "oneOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 1024
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                        }
-                      ]
-                    }
-                  }
-                }
-              }
-            },
-            "producer": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "max_buffered_bytes": {
-                  "oneOf": [
-                    {
-                      "type": "integer",
-                      "minimum": 1024
-                    },
-                    {
-                      "type": "string",
-                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "image": {
-          "$ref": "#/definitions/imageOverride"
-        }
-      }
-    },
-    "workerDefaults": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "replicaCount": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "pod": {
-          "$ref": "#/definitions/pod"
-        },
-        "autoscaling": {
-          "$ref": "#/definitions/autoscaling"
-        },
-        "disruptionBudget": {
-          "$ref": "#/definitions/disruptionBudget"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "allowScaleToZero": {
-          "type": "boolean"
-        },
-        "runtime": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "memory": {
-              "$ref": "#/definitions/memoryCapacity"
-            },
-            "logging": {
-              "$ref": "#/definitions/logging"
-            },
-            "execution": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "merge": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "max_attempts": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "lua": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "timeout": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "max_source_bytes": {
-                          "oneOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 1024
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                            }
-                          ]
-                        },
-                        "max_result_bytes": {
-                          "oneOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 1024
-                            },
-                            {
-                              "type": "string",
-                              "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
-                            }
-                          ]
-                        },
-                        "max_cached_programs": {
-                          "type": "integer",
-                          "minimum": 1
-                        },
-                        "max_instructions": {
-                          "type": "integer",
-                          "minimum": 1
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "consumer": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "group_id": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "max_poll_records": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "processing_timeout": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "retry": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "max_attempts": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "backoff": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "max_backoff": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "image": {
-          "$ref": "#/definitions/imageOverride"
         }
       }
     },
@@ -1189,14 +750,6 @@
             "metadataField": {
               "type": "string",
               "minLength": 1
-            },
-            "maxConcurrentWrites": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "maxConcurrentGroups": {
-              "type": "integer",
-              "minimum": 1
             }
           },
           "required": [
@@ -1322,12 +875,7 @@
             "$ref": "#/definitions/scalingPolicy"
           }
         }
-      },
-      "required": [
-        "stabilizationWindowSeconds",
-        "selectPolicy",
-        "policies"
-      ]
+      }
     },
     "scalingBehavior": {
       "type": "object",
@@ -1339,17 +887,13 @@
         "scaleDown": {
           "$ref": "#/definitions/scalingRules"
         }
-      },
-      "required": [
-        "scaleUp",
-        "scaleDown"
-      ]
+      }
     },
     "memoryCapacity": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "max_bytes": {
+        "maxBytes": {
           "oneOf": [
             {
               "type": "integer",
@@ -1361,41 +905,15 @@
             }
           ]
         },
-        "high_watermark_percent": {
+        "highWatermarkPercent": {
           "type": "integer",
           "minimum": 1,
           "maximum": 99
         },
-        "low_watermark_percent": {
+        "lowWatermarkPercent": {
           "type": "integer",
           "minimum": 1,
           "maximum": 99
-        }
-      }
-    },
-    "imageOverride": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "repository": {
-          "type": "string",
-          "minLength": 1
-        },
-        "tag": {
-          "type": "string",
-          "minLength": 1
-        },
-        "digest": {
-          "type": "string",
-          "minLength": 0,
-          "pattern": "^(sha256:[a-f0-9]{64})?$"
-        },
-        "pullPolicy": {
-          "enum": [
-            "Always",
-            "IfNotPresent",
-            "Never"
-          ]
         }
       }
     },
@@ -1457,10 +975,10 @@
             }
           }
         },
-        "failure_body": {
+        "includeFailureBody": {
           "type": "boolean"
         },
-        "max_body_bytes": {
+        "maxBodyBytes": {
           "oneOf": [
             {
               "type": "integer",
@@ -1499,29 +1017,657 @@
                 }
               }
             },
-            "queue_size": {
+            "queueSize": {
               "type": "integer",
               "minimum": 1,
               "maximum": 8192
             },
-            "batch_size": {
+            "batchSize": {
               "type": "integer",
               "minimum": 1,
               "maximum": 512
             },
-            "flush_interval": {
+            "flushInterval": {
               "type": "string",
               "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h))*$"
             },
-            "export_timeout": {
+            "exportTimeout": {
               "type": "string",
               "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h))*$"
             },
-            "shutdown_timeout": {
+            "shutdownTimeout": {
               "type": "string",
               "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h)(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|\u00b5s|\u03bcs|ms|s|m|h))*$"
             }
           }
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pod": {
+          "$ref": "#/definitions/pod"
+        },
+        "autoscaling": {
+          "$ref": "#/definitions/autoscaling"
+        },
+        "podDisruptionBudget": {
+          "$ref": "#/definitions/podDisruptionBudget"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "grpc": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "maxReceiveMessageBytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "maxSendMessageBytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                }
+              }
+            },
+            "memory": {
+              "$ref": "#/definitions/memoryCapacity"
+            },
+            "logging": {
+              "$ref": "#/definitions/logging"
+            },
+            "batching": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "maxWait": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "maxOperations": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxBytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                },
+                "queue": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "maxOperations": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "maxBytes": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1024
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "kafkaProducer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "maxBufferedBytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                }
+              }
+            },
+            "merge": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "maxAttempts": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lua": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "timeout": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "maxSourceBytes": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1024
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                        }
+                      ]
+                    },
+                    "maxResultBytes": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1024
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                        }
+                      ]
+                    },
+                    "maxCachedPrograms": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "maxInstructions": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rollout": {
+          "$ref": "#/definitions/engineRollout"
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pod": {
+          "$ref": "#/definitions/pod"
+        },
+        "autoscaling": {
+          "$ref": "#/definitions/workerAutoscaling"
+        },
+        "podDisruptionBudget": {
+          "$ref": "#/definitions/podDisruptionBudget"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "memory": {
+              "$ref": "#/definitions/memoryCapacity"
+            },
+            "logging": {
+              "$ref": "#/definitions/logging"
+            },
+            "kafkaConsumer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "groupId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "maxPollRecords": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "processingTimeout": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "retry": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "maxAttempts": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "backoff": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "maxBackoff": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "merge": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "maxAttempts": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lua": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "timeout": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "maxSourceBytes": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1024
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                        }
+                      ]
+                    },
+                    "maxResultBytes": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1024
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                        }
+                      ]
+                    },
+                    "maxCachedPrograms": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "maxInstructions": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rollout": {
+          "$ref": "#/definitions/rollout"
+        },
+        "serviceAccount": {
+          "$ref": "#/definitions/serviceAccount"
+        }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxUnavailable": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minReadySeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "shutdownTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "shutdownBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "preStopDelaySeconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminationGracePeriodSeconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "restartRevision": {
+          "type": "string",
+          "minLength": 0
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 0
+          }
+        }
+      }
+    },
+    "engineRollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minReadySeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "shutdownTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "shutdownBudgetSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "preStopDelaySeconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminationGracePeriodSeconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "restartRevision": {
+          "type": "string",
+          "minLength": 0
+        },
+        "readinessCheck": {
+          "enum": [
+            "storage",
+            "kafka",
+            "process"
+          ]
+        }
+      }
+    },
+    "workerAutoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "hpa",
+            "keda"
+          ]
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxReplicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "targetCPUUtilizationPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "targetMemoryUtilizationPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "extraMetrics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "keda": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pollingInterval": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cooldownPeriod": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 0
+                  },
+                  "metricType": {
+                    "enum": [
+                      "AverageValue",
+                      "Value",
+                      "Utilization"
+                    ]
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 0
+                    }
+                  },
+                  "authenticationRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "kind": {
+                        "enum": [
+                          "TriggerAuthentication",
+                          "ClusterTriggerAuthentication"
+                        ]
+                      }
+                    }
+                  },
+                  "useCachedMetrics": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "type",
+                  "metadata"
+                ]
+              }
+            },
+            "fallback": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "failureThreshold": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "replicas": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "behavior": {
+                  "enum": [
+                    "static",
+                    "currentReplicas",
+                    "currentReplicasIfHigher",
+                    "currentReplicasIfLower"
+                  ]
+                }
+              }
+            },
+            "initialCooldownPeriod": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 0
+              }
+            },
+            "hpaName": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 253,
+              "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$"
+            },
+            "restoreToOriginalReplicaCount": {
+              "type": "boolean"
+            },
+            "kafkaLag": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 253,
+                  "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$"
+                },
+                "useCachedMetrics": {
+                  "type": "boolean"
+                },
+                "authenticationRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "kind": {
+                      "enum": [
+                        "TriggerAuthentication",
+                        "ClusterTriggerAuthentication"
+                      ]
+                    }
+                  }
+                },
+                "targetLag": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "behavior": {
+          "$ref": "#/definitions/scalingBehavior"
+        },
+        "allowScaleToZero": {
+          "type": "boolean"
         }
       }
     }

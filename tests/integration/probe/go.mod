@@ -3,7 +3,7 @@ module github.com/batchstream/sink-charts/tests/probe
 go 1.27.0
 
 require (
-	github.com/liran/sink-go v0.8.0
+	github.com/liran/sink-go v0.10.0
 	google.golang.org/grpc v1.83.2
 )
 

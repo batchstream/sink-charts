@@ -1,11 +1,6 @@
-# Requires Sink 0.19.0+ with process memory watermark admission.
-# Overlay cluster-values.yaml. Update Prometheus namespace/job selectors to the
-# actual Gateway scrape target. Use matching Gateway/Engine private protocol versions.
+# Overlay cluster-values.yaml after installing KEDA. Replace Prometheus address/selectors.
+# Keep the generated Worker Kafka lag trigger alongside memory pressure triggers.
 gateway:
-  runtime:
-    memory:
-      high_watermark_percent: 80
-      low_watermark_percent: 70
   autoscaling:
     mode: keda
     minReplicas: 2
@@ -13,30 +8,27 @@ gateway:
     keda:
       triggers:
         - type: prometheus
-          metricType: Value # Fleet ratio: do not divide by replicas again.
+          metricType: Value
           metadata:
             serverAddress: http://prometheus.monitoring.svc:9090
-            threshold: "0.75"
-            ignoreNullValues: "false"
-            query: >-
-              (
-                sum(sink_memory_used_bytes{namespace="sink",job="sink-gateway",role="gateway"})
-                / sum(sink_memory_watermark_bytes{namespace="sink",job="sink-gateway",role="gateway",watermark="high"})
-              )
-              and on() (min(up{namespace="sink",job="sink-gateway"}) == 1)
-              and on() (count(sink_memory_watermark_bytes{namespace="sink",job="sink-gateway",role="gateway",watermark="high"})
-                        == count(up{namespace="sink",job="sink-gateway"}))
+            threshold: '0.75'
+            ignoreNullValues: 'false'
+            query: "(\n  sum(sink_memory_used_bytes{namespace=\"sink\",job=\"sink-gateway\",role=\"gateway\"})\n\
+              \  / sum(sink_memory_watermark_bytes{namespace=\"sink\",job=\"sink-gateway\",role=\"gateway\",watermark=\"\
+              high\"})\n) and on() (min(up{namespace=\"sink\",job=\"sink-gateway\"}) == 1) and on() (count(sink_memory_watermark_bytes{namespace=\"\
+              sink\",job=\"sink-gateway\",role=\"gateway\",watermark=\"high\"})\n          == count(up{namespace=\"\
+              sink\",job=\"sink-gateway\"}))"
         - type: prometheus
           metricType: Value
           metadata:
             serverAddress: http://prometheus.monitoring.svc:9090
-            threshold: "0.02"
-            ignoreNullValues: "false"
-            query: >-
-              (
-                sum(rate(sink_memory_rejected_total{namespace="sink",job="sink-gateway",role="gateway"}[1m]))
-                / clamp_min(
-                  sum(rate(sink_memory_admitted_total{namespace="sink",job="sink-gateway",role="gateway"}[1m]))
-                  + sum(rate(sink_memory_rejected_total{namespace="sink",job="sink-gateway",role="gateway"}[1m])), 1)
-              )
-              and on() (min(up{namespace="sink",job="sink-gateway"}) == 1)
+            threshold: '0.02'
+            ignoreNullValues: 'false'
+            query: "(\n  sum(rate(sink_memory_rejected_total{namespace=\"sink\",job=\"sink-gateway\",role=\"gateway\"\
+              }[1m]))\n  / clamp_min(\n    sum(rate(sink_memory_admitted_total{namespace=\"sink\",job=\"sink-gateway\"\
+              ,role=\"gateway\"}[1m]))\n    + sum(rate(sink_memory_rejected_total{namespace=\"sink\",job=\"sink-gateway\"\
+              ,role=\"gateway\"}[1m])), 1)\n) and on() (min(up{namespace=\"sink\",job=\"sink-gateway\"}) == 1)"
+  config:
+    memory:
+      highWatermarkPercent: 80
+      lowWatermarkPercent: 70

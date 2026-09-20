@@ -1,0 +1,55 @@
+# Overlay cluster-values.yaml. All application fields are camelCase.
+# Empty maps in values.yaml inherit Sink defaults; this overlay makes tuning explicit.
+gateway:
+  config:
+    grpc: {maxReceiveMessageBytes: 64MiB, maxSendMessageBytes: 64MiB}
+    memory: {maxBytes: 512MiB, highWatermarkPercent: 80, lowWatermarkPercent: 70}
+    requestLimits: {maxOperations: 1000}
+    forwarding: {idleTimeout: 5m, maxConnections: 256, maxFanout: 8}
+defaults:
+  engine:
+    config:
+      grpc: {maxReceiveMessageBytes: 64MiB, maxSendMessageBytes: 64MiB}
+      memory: {maxBytes: 1GiB, highWatermarkPercent: 80, lowWatermarkPercent: 70}
+      batching:
+        maxWait: 2ms
+        maxOperations: 32
+        maxBytes: 16MiB
+        queue: {maxOperations: 10000, maxBytes: 128MiB}
+      merge:
+        maxAttempts: 3
+        lua:
+          timeout: 100ms
+          maxSourceBytes: 64KiB
+          maxResultBytes: 16MiB
+          maxCachedPrograms: 256
+          maxInstructions: 1000000
+  worker:
+    config:
+      memory: {maxBytes: 1GiB, highWatermarkPercent: 80, lowWatermarkPercent: 70}
+      merge:
+        maxAttempts: 3
+        lua:
+          timeout: 100ms
+          maxSourceBytes: 64KiB
+          maxResultBytes: 16MiB
+          maxCachedPrograms: 256
+          maxInstructions: 1000000
+      kafkaConsumer:
+        maxPollRecords: 500
+        processingTimeout: 20s
+        retry: {maxAttempts: 10, backoff: 100ms, maxBackoff: 10s}
+stores:
+  mongo:
+    kafka:
+      topic: {retention: 72h}
+      deadLetterTopic: {name: mongo-rejected, retention: 720h}
+      topicPolicy: {replicationFactor: 3, minInSyncReplicas: 1}
+      maxRecordBytes: 900KiB
+    engine:
+      config:
+        # Producer tuning belongs only to Stores with Kafka configured.
+        kafkaProducer: {maxBufferedBytes: 64MiB}
+    worker:
+      config:
+        kafkaConsumer: {groupId: mongo-workers}

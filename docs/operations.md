@@ -2,20 +2,17 @@
 
 ## Configuration and initial admission
 
-Chart 0.8 uses a shared `stores.<name>.storage` object for each Engine/Worker
+Chart 0.9 uses a shared `stores.<name>.storage` object for each Engine/Worker
 pair. **Maintain only values, not a separate Sink config YAML.** The chart generates
-the complete configuration for every role. It requires Sink 0.19.0+. The previous complete configuration Secret interface
-has been removed. Store map keys remain stable Sink identities; changing a key
-creates a different Store. Only active Stores appear in the Gateway routes.
+the complete configuration for every role. It requires Sink 0.19.0+. Store map keys remain stable Sink identities;
+changing a key creates a different Store. Only active Stores appear in the Gateway routes.
 
 Common operational values are an abstraction over Sink configuration: listener
 ports, time budgets, Store identity, Kafka policy and credentials are configured
 once and rendered consistently for each role. MongoDB tuning uses
-`storage.mongodb.metadataField` (default `__sink`), `maxConcurrentWrites` (64),
-and `maxConcurrentGroups` (16). Both roles reuse these settings; concurrency
-limits apply independently within each process. Resource/memory limits, discovery convergence, rolling
-surge and graceful exit have the defaults described below. Advanced tuning remains
-inside values under `runtime`; it never requires a separately maintained config file.
+`storage.mongodb.metadataField` (default `__sink`). Both roles reuse this setting.
+Resource/memory limits, discovery convergence, rolling surge and graceful exit have the defaults described below. Advanced tuning remains
+inside values under `config`; it never requires a separately maintained config file.
 
 Gateway Service names derive from the Helm release name, not the chart version, so
 upgrading one release keeps client addresses stable. A release named `sink` in the
@@ -29,20 +26,20 @@ role. Engine and Worker project the same Store ConfigMap and load it through
 `--store-config`. Component changes roll only the affected role; shared changes
 roll both. Gateway mounts only its own configuration.
 
-`runtime.execution`, `runtime.batching`, and `runtime.producer` tune Engine;
-`runtime.execution` and `runtime.consumer` tune Worker. Only Gateway accepts
-`runtime.request.max_operations` and `runtime.forwarding`. Worker memory exposes
-only `max_bytes`. Kafka brokers, Topic/DLQ and replication policy stay shared;
-`kafka.runtime` accepts `max_record_bytes`, `topic.retention`, and
-`dead_letter.name`/`dead_letter.retention`. Partitions, replication factor, minimum
-ISR (default `1`), and record size apply to both Topics; generated Store YAML places
-these shared settings directly under `kafka`. Worker group belongs to
-`stores.<name>.worker.runtime.consumer.group_id`, which KEDA also uses.
+`config.merge`, `config.batching`, and `config.kafkaProducer` tune Engine;
+`config.merge` and `config.kafkaConsumer` tune Worker. Only Gateway accepts
+`config.requestLimits.maxOperations` and `config.forwarding`. All roles accept
+`config.memory.maxBytes`, `highWatermarkPercent`, and `lowWatermarkPercent`.
+Kafka brokers, topics and replication policy stay shared under `stores.<name>.kafka`.
+`topic` and `deadLetterTopic` each hold `name` and `retention`; `topicPolicy` holds
+`partitions`, `replicationFactor`, and `minInSyncReplicas` (default `1`) for both topics.
+`maxRecordBytes` also applies to both topics. Worker group belongs to
+`stores.<name>.worker.config.kafkaConsumer.groupId`, which KEDA also uses.
 
-Empty `engineDefaults.runtime.batching` inherits Sink's measured starting values:
-`max_operations: 32` and `max_wait: 2ms`. Memory watermarks default to 80% for rejection and 70% for recovery.
+Empty `defaults.engine.config.batching` inherits Sink's measured starting values:
+`maxOperations: 32` and `maxWait: 2ms`. Memory watermarks default to 80% for rejection and 70% for recovery.
 The Chart does not emit duplicate overrides for these runtime defaults. Tune a
-Store through `stores.<name>.engine.runtime.batching`; the 32-operation batch
+Store through `stores.<name>.engine.config.batching`; the 32-operation batch
 target does not change Gateway's 1,000-operation public request limit. See
 [default selection](https://github.com/batchstream/sink/blob/main/docs/batching.md#default-selection)
 for the benchmark evidence and workload limits.
@@ -60,7 +57,7 @@ or Secret-reading RBAC. Gateway does not mount Store credentials.
 ```yaml
 stores:
   orders:
-    state: staged
+    phase: staged
     storage:
       driver: mongodb
       mongodb:
@@ -86,7 +83,7 @@ The authentication modes are mutually exclusive. See
 [search-values.yaml](../examples/search-values.yaml). Inline MongoDB URIs,
 passwords and API keys are rejected by the chart schema. Do not embed credentials
 in search endpoint URLs or other ordinary tuning values. Sink currently has no
-Kafka SASL/TLS credential fields; KEDA's `authenticationRef` authenticates the
+Kafka SASL/TLS credential fields; `worker.autoscaling.keda.kafkaLag.authenticationRef` authenticates the
 **scaler only** and does not configure Sink's Kafka clients.
 
 Secret file bytes are preserved exactly, including spaces, `$`, quotes, Unicode
@@ -129,7 +126,7 @@ Ordinary runtime ConfigMap changes automatically change the workload checksum.
 Do not combine a Store's activation with its configuration or credential change;
 stage and validate it first. The chart never deletes backend records or Kafka topics.
 
-Store capability readiness checks storage by default. `readiness: kafka` is useful
+Store capability readiness checks storage by default. `rollout.readinessCheck: kafka` is useful
 for an async-only Store; `process` deliberately admits without dependency checks.
 A single dependency probe does not prove Mongo majority durability or search shard
 availability. Before admitting traffic, run representative write/read and async
@@ -144,36 +141,30 @@ those policies or silently expose a public LoadBalancer by default.
 
 ## Rolling upgrades and DNS
 
-### Staged image upgrades
+### Shared image upgrades
 
-Chart 0.8 requires the new role/Store schema and private forwarding version in
-Sink 0.19. Deploy a separate matching cluster for an upgrade from 0.18 or older;
-the former mixed-version forwarding path is not supported across this boundary.
-The steps below apply only to builds with compatible configuration and forwarding
-protocols. Qualification accepts explicit baseline and target candidate images.
+The top-level `image` is the only image configuration for Gateway, Engines and
+Workers. Set `image.repository`, `image.tag` or `image.digest` in one values
+revision and apply it. A nonempty digest takes precedence over the tag; clear
+`image.digest` explicitly to select by tag. Registry credential references belong
+to `image.pullSecrets` and are applied to every workload.
 
-Keep the global `image` pinned to the current release. In the first values
-revision, set `engineDefaults.image.digest` to the new release digest and apply
-that revision. Wait for all Engine Deployments to finish and for old Engine Pods
-to exit. Include any per-Store `engine.image` pins when advancing versions.
-In a second revision, set `gateway.image.digest` to that same digest. Workers
-can be advanced with `workerDefaults.image.digest` according to the release's
-queue compatibility requirements. Keep these pins in the full values file used
-by subsequent upgrades.
+An image change rolls all components. Wait for every Deployment to become fully
+available and for all old/terminating Pods to exit, then verify synchronous and
+asynchronous operations. Reserve surge and termination capacity across the whole
+release. To roll back, restore the previous shared image selection and repeat
+these checks. Store lifecycle checks apply independently.
 
-Image fields inherit in this order: global `image`, role defaults, then per-Store
-overrides. A role or Store `tag` without `digest` clears the inherited digest;
-supplying both retains digest precedence. Prefer immutable digests in production.
-
-For rollback, first restore the Gateway image and wait for all new Gateway Pods
-to exit, then restore Engines. Apply two explicit values revisions; a single
-`helm rollback` changing all images cannot enforce this order. Store lifecycle
-transition checks still apply independently.
+Rolling upgrades require compatible application configuration, forwarding and
+Kafka formats because old and new Pods coexist during replacement. Qualify the
+specific image pair using the upgrade scenario. For incompatible versions, use
+a separate matching cluster and a coordinated cutover. Chart 0.9 targets Sink
+0.19; it does not provide mixed-version compatibility with 0.18 or older.
 
 ### Drain timing
 
 Business RPCs have no implicit deadline. DNS withdrawal waits before SIGTERM,
-then `shutdownTimeoutSeconds` bounds graceful drain; an indefinitely waiting
+then `rollout.shutdownTimeoutSeconds` bounds graceful drain; an indefinitely waiting
 request can be interrupted when that shutdown bound expires. Configure it for
 operational needs and let clients choose request deadlines.
 
@@ -194,14 +185,14 @@ Worker: no preStop wait, `160s` grace, allowing prompt consumer departure.
 Each uses a 150s process shutdown budget and 10s final margin. The chart rejects
 shorter overrides and a process budget smaller than four configured shutdown
 timeouts. This lower bound is a guardrail, not proof that backend cleanup finishes
-within it: `shutdown_timeout` bounds individual phases, not the entire process.
+within it: `rollout.shutdownTimeoutSeconds` bounds individual phases, not the entire process.
 Measure worker settlement, gRPC drain, listener shutdown and backend disconnect.
 
 Kubernetes marks terminating endpoints unready while native preStop sleep keeps
 Sink accepting in-flight/stale-discovery calls. Engine discovery never publishes
 unready addresses. `/livez` only checks the process; dependency failures do not
 cause liveness restart loops. Startup gets up to five minutes. Engine
-`minReadySeconds` is at least the DNS convergence allowance (55s by default), so a
+`rollout.minReadySeconds` is at least the DNS convergence allowance (55s by default), so a
 surging replica has time to enter discovery before another old Pod is removed.
 Rolling updates use `maxUnavailable: 0`, `maxSurge: 1`. Reserve surge capacity for
 **each concurrently changing Deployment**, including terminating Pods; total Pod
@@ -210,7 +201,7 @@ count can temporarily exceed desired replicas plus one while old Pods drain.
 Measure your CoreDNS and NodeLocal DNS positive/negative TTLs, EndpointSlice
 publication, gRPC clients' re-resolution/backoff, proxies and load balancer target
 deregistration. Direct Engine clients need their own discovery/connection budgets;
-the Engine calculation above models Gateway callers. `dnsRefreshSeconds` does not
+the Engine calculation above models Gateway callers. `cluster.discovery.dnsRefreshSeconds` does not
 flush upstream caches. SERVFAIL,
 stale answers or a partition can exceed any finite drain window. Abrupt node loss,
 OOM/SIGKILL, forced deletion, backend quorum loss or clients with shorter deadlines
@@ -232,12 +223,12 @@ well: Deployment availability does not mean all
 old Pods have exited. Helm hooks do not delete data, and there is no resource keep
 policy leaving orphaned Deployments behind.
 
-1. **Stage:** add a new Store with `state: staged` and provision its referenced credential
+1. **Stage:** add a new Store with `phase: staged` and provision its referenced credential
    Secrets. Engines/Workers start, but Gateway does not route to it. Wait for Engine
    available replicas and check the representative backend and Kafka operations
    directly through its headless Service. Unique topics and consumer groups prevent
    cross-Store delivery; consumer count cannot exceed topic partitions.
-2. **Activate:** change only `state` to `active` in a separate upgrade. Live Helm
+2. **Activate:** change only `phase` to `active` in a separate upgrade. Live Helm
    rendering rejects activation until the existing Engine Deployment has observed
    its current generation and has all desired updated/available replicas. The
    unchanged Engine configuration hash prevents activating an untested new config.
@@ -252,7 +243,7 @@ policy leaving orphaned Deployments behind.
 4. **Drain and remove:** wait until all old/terminating Gateway Pods have gone,
    verify source lag is zero, resolve/replay or explicitly retain DLQ records, and
    verify final data. Then delete the Store entry and include its name in
-   `lifecycle.removalApprovals`. Live Helm rejects direct active Store deletion,
+   `cluster.storeLifecycle.removalApprovals`. Live Helm rejects direct active Store deletion,
    missing approval and retirement while old Gateway Pods remain. Keep external
    Secrets/backends/topics until your retention/rollback requirements are satisfied.
    Clear completed removal approvals from the next values revision. A previously
@@ -276,7 +267,7 @@ release was initially empty.
 `helm template` and client-side dry-run cannot execute these checks. For GitOps,
 run the same staged/activation/retirement reviews in separate reconciliations and
 verify live state externally; use a server-side Helm dry-run where supported.
-`lifecycle.enforceTransitions: false` explicitly delegates these checks to your
+`cluster.storeLifecycle.enforceTransitions: false` explicitly delegates these checks to your
 release pipeline. Helm rollback replays stored manifests without re-running the
 checks, and uninstall/direct kubectl changes bypass them entirely. Do not use
 `--atomic` or unattended rollback across Store topology transitions. To uninstall,
@@ -293,10 +284,10 @@ Engine/Worker overrides merge independently with their role defaults. Integer
 memory quantities (`512Mi`, `2Gi`, decimal bytes, `M`/`G`) are supported; fractional
 or milli-byte quantities are rejected. `GOMEMLIMIT` defaults to 80% of the container
 memory limit, leaving headroom for non-Go memory. It is a soft Go runtime target,
-not an OOM guarantee. Do not override it through `env`; use `goMemoryLimitPercent`.
+not an OOM guarantee. Do not override it through `env`; use `pod.goMemoryLimitPercent`.
 
 Application queues, publish buffers, Kafka fetch sizes and gRPC
-message limits must fit the memory budget too. Set these in the supported `runtime.execution`/`runtime.batching`/`runtime.grpc`
+message limits must fit the memory budget too. Set these in the supported `config.merge`/`config.batching`/`config.grpc`
 configuration and qualify representative maximum documents/fanout. Startup panics
 when its minimum working-memory estimate exceeds the high-watermark allowance;
 this is a sizing check, not an OOM guarantee. Increasing
@@ -318,7 +309,7 @@ upgrades from resetting a controller's live count. Gateway minimum is two. Engin
 defaults to two, but an explicit fixed or minimum count of one is allowed with
 `maxUnavailable: 0`; it has no replica redundancy during failure or termination.
 Engine zero is rejected because synchronous Store operations need a routable Engine.
-Workers can run one only with a compatible PDB; zero requires `allowScaleToZero`
+Workers can run one only with a compatible PDB; zero requires `autoscaling.allowScaleToZero`
 and a disabled PDB. Zero means async application waits for polling and cold start.
 Synchronous Engine operations remain independent of Worker count.
 
@@ -327,7 +318,7 @@ KEDA Gateway/Engine defaults to CPU; custom triggers replace that CPU trigger.
 Worker KEDA always includes a Kafka lag trigger and appends any custom triggers.
 Kafka uses earliest offset bootstrap, explicit source topic and consumer group,
 no idle consumers, no persistent-lag exclusion, and no invalid-offset zeroing.
-The replica ceiling must be at most the partition count. Use `lagThreshold` as
+The replica ceiling must be at most the partition count. Use `autoscaling.keda.kafkaLag.targetLag` as
 records per consumer, measured against application time, not arbitrary CPU ratios.
 Retries/poison records can hold lag high; do not mask them to force scale-down.
 
@@ -356,7 +347,7 @@ by the HPA scale-down rate. Worker graceful Kafka departure still needs its enti
 termination budget. Choose cooldown longer than routine idle gaps to avoid churn.
 
 Controller changes require an explicit handoff: record current desired count,
-freeze application rollouts, switch to `none` with that replicaCount and wait for
+freeze application rollouts, switch to `none` with that `replicas` value and wait for
 the old HPA/ScaledObject (including KEDA-generated HPA) to disappear, then enable
 the new mode. Do not run an external HPA against these Deployments concurrently.
 A first install with autoscaling may briefly start at Kubernetes' default one Pod

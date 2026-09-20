@@ -15,17 +15,17 @@ spec:
   maxReplicas: {{ $a.maxReplicas }}
   behavior: {{ include "sink.behavior" $a | nindent 4 }}
   metrics:
-    {{- if gt (int $a.cpuUtilization) 0 }}
+    {{- if gt (int $a.targetCPUUtilizationPercent) 0 }}
     - type: Resource
       resource:
         name: cpu
-        target: {type: Utilization, averageUtilization: {{ $a.cpuUtilization }}}
+        target: {type: Utilization, averageUtilization: {{ $a.targetCPUUtilizationPercent }}}
     {{- end }}
-    {{- if gt (int $a.memoryUtilization) 0 }}
+    {{- if gt (int $a.targetMemoryUtilizationPercent) 0 }}
     - type: Resource
       resource:
         name: memory
-        target: {type: Utilization, averageUtilization: {{ $a.memoryUtilization }}}
+        target: {type: Utilization, averageUtilization: {{ $a.targetMemoryUtilizationPercent }}}
     {{- end }}
     {{- with $a.extraMetrics }}{{ toYaml . | nindent 4 }}{{- end }}
 {{- else if eq $a.mode "keda" }}
@@ -42,7 +42,7 @@ spec:
   scaleTargetRef: {name: {{ $name }}}
   minReplicaCount: {{ $a.minReplicas }}
   maxReplicaCount: {{ $a.maxReplicas }}
-  {{- $cached := and (eq $c.role "worker") $a.keda.kafkaTrigger.useCachedMetrics }}
+  {{- $cached := and (eq $c.role "worker") $a.keda.kafkaLag.useCachedMetrics }}
   {{- range $trigger := $a.keda.triggers }}{{- if $trigger.useCachedMetrics }}{{- $cached = true }}{{- end }}{{- end }}
   {{- if or (eq (int $a.minReplicas) 0) $cached }}
   pollingInterval: {{ $a.keda.pollingInterval }}
@@ -68,31 +68,31 @@ spec:
   triggers:
     {{- if eq $c.role "worker" }}
     - type: kafka
-      {{- with $a.keda.kafkaTrigger.name }}
+      {{- with $a.keda.kafkaLag.name }}
       name: {{ . | quote }}
       {{- end }}
       metricType: AverageValue
-      {{- if $a.keda.kafkaTrigger.useCachedMetrics }}
+      {{- if $a.keda.kafkaLag.useCachedMetrics }}
       useCachedMetrics: true
       {{- end }}
       metadata:
         bootstrapServers: {{ join "," $c.kafka.brokers | quote }}
-        consumerGroup: {{ $c.settings.runtime.consumer.group_id | quote }}
-        topic: {{ $c.kafka.topic | quote }}
-        lagThreshold: {{ default 1000 $c.kafka.lagThreshold | quote }}
+        consumerGroup: {{ $c.settings.config.kafkaConsumer.groupId | quote }}
+        topic: {{ $c.kafka.topic.name | quote }}
+        lagThreshold: {{ $a.keda.kafkaLag.targetLag | quote }}
         activationLagThreshold: "0"
         offsetResetPolicy: earliest
         allowIdleConsumers: "false"
         scaleToZeroOnInvalidOffset: "false"
         excludePersistentLag: "false"
-      {{- with $a.keda.authenticationRef }}
+      {{- with $a.keda.kafkaLag.authenticationRef }}
       authenticationRef: {{ toYaml . | nindent 8 }}
       {{- end }}
     {{- else if eq (len $a.keda.triggers) 0 }}
     - type: cpu
       metricType: Utilization
       metadata:
-        value: {{ $a.cpuUtilization | quote }}
+        value: {{ $a.targetCPUUtilizationPercent | quote }}
     {{- end }}
     {{- with $a.keda.triggers }}{{ toYaml . | nindent 4 }}{{- end }}
 {{- end }}

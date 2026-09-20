@@ -1,4 +1,4 @@
-# Store credentials are externally managed Secrets in the release namespace.
+# Active MongoDB Store plus staged archive. HPA requires metrics-server.
 gateway:
   autoscaling:
     mode: hpa
@@ -6,7 +6,20 @@ gateway:
     maxReplicas: 6
 stores:
   mongo:
-    state: active
+    phase: active
+    storage:
+      driver: mongodb
+      mongodb:
+        uriSecretRef:
+          name: sink-mongo-v1
+          key: uri
+    kafka:
+      brokers:
+        - kafka.example.invalid:9092
+      topic:
+        name: mongo-mutations-v1
+      topicPolicy:
+        partitions: 8
     engine:
       pod:
         resources:
@@ -21,9 +34,9 @@ stores:
         maxReplicas: 8
     worker:
       enabled: true
-      runtime:
-        consumer:
-          group_id: mongo-workers-v1
+      config:
+        kafkaConsumer:
+          groupId: mongo-workers-v1
       pod:
         resources:
           requests:
@@ -35,22 +48,14 @@ stores:
         mode: hpa
         minReplicas: 2
         maxReplicas: 4
-    kafka:
-      brokers:
-      - kafka.example.invalid:9092
-      topic: mongo-mutations-v1
-      partitions: 8
-      lagThreshold: 1000
-    # Same credential projection and backend settings for both roles.
+  archive:
+    phase: staged
     storage:
       driver: mongodb
       mongodb:
         uriSecretRef:
-          name: sink-mongo-v1
+          name: sink-archive-v1
           key: uri
-  archive:
-    # Activate in a separate upgrade after backend checks and Engine availability.
-    state: staged
     engine:
       pod:
         resources:
@@ -59,10 +64,3 @@ stores:
             memory: 512Mi
           limits:
             memory: 1Gi
-    # Same credential projection and backend settings for both roles.
-    storage:
-      driver: mongodb
-      mongodb:
-        uriSecretRef:
-          name: sink-archive-v1
-          key: uri
