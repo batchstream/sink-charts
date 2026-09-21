@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	sink "github.com/liran/sink-go"
+	sink "github.com/batchstream/sink-go"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
