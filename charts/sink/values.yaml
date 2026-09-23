@@ -9,7 +9,7 @@ fullnameOverride: ''
 # One shared image and registry configuration for every Gateway, Engine and Worker.
 image:
   repository: ghcr.io/batchstream/sink
-  tag: 0.20.0
+  tag: 0.21.0
   digest: ''
   pullPolicy: IfNotPresent
   pullSecrets: []
@@ -286,6 +286,7 @@ defaults:
 # stores:
 #   orders:
 #     phase: staged
+#     maxConcurrent: 64 # Optional per-process Store ceiling; Search defaults to 128.
 #     storage:
 #       driver: mongodb
 #       mongodb:

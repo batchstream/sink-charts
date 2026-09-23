@@ -28,8 +28,8 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | quote }}
 {{- if eq $settings.phase "active" -}}{{- $active = true -}}{{- end -}}
 {{- $engine := mergeOverwrite (deepCopy $.Values.defaults.engine) (default dict $settings.engine) -}}
 {{- $worker := mergeOverwrite (deepCopy $.Values.defaults.worker) (default dict $settings.worker) -}}
-{{- $items = append $items (dict "role" "engine" "store" $store "settings" $engine "storage" $settings.storage "credentialRevision" (default "" $settings.credentialRevision) "kafka" (default dict $settings.kafka)) -}}
-{{- if $worker.enabled -}}{{- $items = append $items (dict "role" "worker" "store" $store "settings" $worker "storage" $settings.storage "credentialRevision" (default "" $settings.credentialRevision) "kafka" (default dict $settings.kafka)) -}}{{- end -}}
+{{- $items = append $items (dict "role" "engine" "store" $store "settings" $engine "storage" $settings.storage "maxConcurrent" (default 0 $settings.maxConcurrent) "credentialRevision" (default "" $settings.credentialRevision) "kafka" (default dict $settings.kafka)) -}}
+{{- if $worker.enabled -}}{{- $items = append $items (dict "role" "worker" "store" $store "settings" $worker "storage" $settings.storage "maxConcurrent" (default 0 $settings.maxConcurrent) "credentialRevision" (default "" $settings.credentialRevision) "kafka" (default dict $settings.kafka)) -}}{{- end -}}
 {{- end -}}
 {{- if $active -}}{{- $items = prepend $items (dict "role" "gateway" "store" "" "settings" .Values.gateway "kafka" dict) -}}{{- end -}}
 {{- toJson $items -}}

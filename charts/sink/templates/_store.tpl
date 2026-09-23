@@ -32,6 +32,7 @@
 {{- $_ := set $storage "search" $search -}}
 {{- end -}}
 {{- $config := dict "name" .store "storage" $storage -}}
+{{- if .maxConcurrent -}}{{- $_ := set $config "max_concurrent" .maxConcurrent -}}{{- end -}}
 {{- if .kafka -}}
 {{- $policy := .kafka.topicPolicy -}}
 {{- $kafka := dict "enabled" true "brokers" .kafka.brokers "partitions" $policy.partitions "replication_factor" (default 3 $policy.replicationFactor) "min_insync_replicas" (default 1 $policy.minInSyncReplicas) "topic" .kafka.topic -}}

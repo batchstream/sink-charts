@@ -1,6 +1,6 @@
 # Values field changes
 
-Chart 0.9 has one configuration schema. Old fields are rejected; there are no
+Chart 0.10 has one configuration schema. Old fields are rejected; there are no
 aliases, automatic conversion or legacy merge rules. For a new installation,
 start with the current examples. This table is a reference for rewriting values.
 
@@ -46,6 +46,7 @@ start with the current examples. This table is a reference for rewriting values.
 | `stores.<name>.kafka.runtime.dead_letter` | `stores.<name>.kafka.deadLetterTopic` |
 | `stores.<name>.kafka.runtime.max_record_bytes` | `stores.<name>.kafka.maxRecordBytes` |
 | `storage.mongodb.maxConcurrentWrites`, `maxConcurrentGroups` | Removed; current Sink rejects these fields |
+| Sink `execution.store_max_concurrent` in an Engine/Worker config | `stores.<name>.maxConcurrent` in Chart values; it renders Store `max_concurrent` for both roles |
 
 Application leaf fields now use camelCase, for example `max_operations` becomes
 `maxOperations`, `group_id` becomes `groupId`, `high_watermark_percent` becomes

@@ -94,6 +94,8 @@ class ChartTests(unittest.TestCase):
         for role in ["engine", "worker"]:
             self.assertEqual(configs[role]["execution"], execution)
             self.assertNotIn("merge", configs[role])
+        store = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-store"]["data"]["store.yaml"])
+        self.assertEqual(store["max_concurrent"], 96)
         grpc = {"address": ":8080", "max_receive_message_bytes": "64MiB", "max_send_message_bytes": "64MiB"}
         for role in ["gateway", "engine"]:
             self.assertEqual(configs[role]["grpc"], grpc)
@@ -163,6 +165,8 @@ class ChartTests(unittest.TestCase):
             "stores.mongo.kafka.lagThreshold=10",
             "stores.mongo.storage.mongodb.maxConcurrentWrites=64",
             "stores.mongo.storage.mongodb.maxConcurrentGroups=16",
+            "defaults.engine.config.storeMaxConcurrent=64",
+            "stores.mongo.storage.maxConcurrent=64",
             "defaults.engine.config.memory.high_watermark_percent=80",
             "defaults.engine.config.logging.failure_body=false",
         ]
@@ -721,6 +725,7 @@ class ChartTests(unittest.TestCase):
             self.assertEqual(shared["kafka"]["topic"], {"name": "mongo"})
             configs.append(shared)
         self.assertEqual(*configs)
+        self.assertNotIn("max_concurrent", configs[0])
         gateway = docs["Deployment", "test-sink-gateway"]
         self.assertEqual(len(gateway["spec"]["template"]["spec"]["volumes"]), 1)
         values["stores"]["mongo"]["credentialRevision"] = "v2"
@@ -751,6 +756,27 @@ class ChartTests(unittest.TestCase):
                 versioned["Deployment", name]["spec"]["template"]["metadata"]["annotations"],
                 tuned["Deployment", name]["spec"]["template"]["metadata"]["annotations"],
             )
+
+    def test_store_concurrency_is_shared_and_bounded(self):
+        values = copy.deepcopy(BASE)
+        values["stores"]["mongo"].update(kafka=KAFKA, worker={"enabled": True})
+        baseline = self.manifests(values)
+        values["stores"]["mongo"]["maxConcurrent"] = 128
+        tuned = self.manifests(values)
+        store = yaml.safe_load(tuned["ConfigMap", "test-sink-mongo-store"]["data"]["store.yaml"])
+        self.assertEqual(store["max_concurrent"], 128)
+        for role in ["engine", "worker"]:
+            name = f"test-sink-mongo-{role}"
+            before = baseline["Deployment", name]["spec"]["template"]["metadata"]["annotations"]
+            after = tuned["Deployment", name]["spec"]["template"]["metadata"]["annotations"]
+            self.assertNotEqual(
+                before["sink.batchstream.io/config-checksum"],
+                after["sink.batchstream.io/config-checksum"],
+            )
+        for maximum in [0, 4097, "128"]:
+            with self.subTest(maximum=maximum):
+                values["stores"]["mongo"]["maxConcurrent"] = maximum
+                self.assertNotEqual(render(values).returncode, 0)
 
     def test_advanced_tuning_is_generated_from_values(self):
         values = copy.deepcopy(BASE)
