@@ -1,5 +1,5 @@
-github.com/batchstream/sink-go v0.10.1-0.20260920213411-182e94733852 h1:VAkKeLTY0obY2M9whp93ij5pPh8ZsoZGhS8qYqwjLFc=
-github.com/batchstream/sink-go v0.10.1-0.20260920213411-182e94733852/go.mod h1:pm/L1cLjXV6/3cGij6dmXX0tfJzlhrMJmpX5b6bxwzg=
+github.com/batchstream/sink-go v0.10.1 h1:a9EYDoTGZEIwuLWW4+Djmbt91V/6r7+VOBT2B9h0WlU=
+github.com/batchstream/sink-go v0.10.1/go.mod h1:pm/L1cLjXV6/3cGij6dmXX0tfJzlhrMJmpX5b6bxwzg=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

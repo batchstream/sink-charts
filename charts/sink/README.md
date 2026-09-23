@@ -1,6 +1,6 @@
 # Sink values reference
 
-Chart **0.9.0** targets Sink **0.19.0** and Kubernetes **1.30+**. Values configure
+Chart **0.9.1** targets Sink **0.20.0** and Kubernetes **1.30+**. Values configure
 a shared Gateway and a separate Engine/optional Worker for each Store. The chart
 generates `sink.yaml` per role and a shared `store.yaml` per Store. There is no
 separate application configuration file to maintain.
@@ -55,7 +55,7 @@ or the targeted Sink version; a different image version may have different appli
 | `nameOverride` | Replace the Chart name in resource names | Empty |
 | `fullnameOverride` | Replace the complete release resource prefix | Empty |
 | `image.repository` | Container repository | `ghcr.io/batchstream/sink` |
-| `image.tag` | Version tag | `0.19.0` |
+| `image.tag` | Version tag | `0.20.0` |
 | `image.digest` | Immutable image selector, preferred over tag | Empty or `sha256:<64 hex characters>` |
 | `image.pullPolicy` | Kubernetes pull policy | `IfNotPresent`; `Always`, `IfNotPresent`, `Never` |
 | `image.pullSecrets` | Registry Secret references for every component | `[]`; list of `{name}` |

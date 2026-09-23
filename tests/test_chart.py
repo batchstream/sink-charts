@@ -51,6 +51,11 @@ class ChartTests(unittest.TestCase):
         }
         return manifests
 
+    def test_default_image_tag_matches_app_version(self):
+        metadata = yaml.safe_load((CHART / "Chart.yaml").read_text())
+        values = yaml.safe_load((CHART / "values.yaml").read_text())
+        self.assertEqual(values["image"]["tag"], metadata["appVersion"])
+
     def test_tuning_overlay_renders_application_contract(self):
         values = {}
         docs = self.manifests(

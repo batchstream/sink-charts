@@ -4,7 +4,7 @@
 
 Chart 0.9 uses a shared `stores.<name>.storage` object for each Engine/Worker
 pair. **Maintain only values, not a separate Sink config YAML.** The chart generates
-the complete configuration for every role. It requires Sink 0.19.0+. Store map keys remain stable Sink identities;
+the complete configuration for every role. It requires Sink 0.20.0+. Store map keys remain stable Sink identities;
 changing a key creates a different Store. Only active Stores appear in the Gateway routes.
 
 Common operational values are an abstraction over Sink configuration: listener

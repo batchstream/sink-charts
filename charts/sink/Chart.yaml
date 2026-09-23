@@ -2,8 +2,8 @@ apiVersion: v2
 name: sink
 description: Store-isolated Sink clusters with bounded rollouts and independent autoscaling.
 type: application
-version: 0.9.0
-appVersion: "0.19.0"
+version: 0.9.1
+appVersion: "0.20.0"
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/batchstream/sink
 sources:
