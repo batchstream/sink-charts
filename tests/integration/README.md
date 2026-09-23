@@ -15,7 +15,7 @@ owned cluster. Its CoreDNS TTL is set to 30 seconds to exercise the chart
 cache budget; KEDA CRDs are installed only there. No current/default Kubernetes
 context is used. The cluster and probe image are deleted in `finally`, including
 on test failures. Logs and JSON reconciliation evidence remain in `.reports/`.
-The `all` and `scaling` scenarios require Sink 0.20+ and enable chart-generated
+The `all` and `scaling` scenarios require Sink 0.21+ and enable chart-generated
 logging on all roles with an unreachable local OTLP receiver. Business traffic,
 readiness, and bounded shutdown must still work. The `upgrades` scenario exercises separate compatible image references; it does
 not assert compatibility with the retired 0.18 configuration or forwarding protocol.
@@ -58,7 +58,7 @@ Use `--scenario scaling` to rerun only the Kafka/KEDA regression in a fresh clus
 
 Use `--sink-image repository:tag` to qualify an explicitly built local candidate.
 Only the disposable test cluster loads that image. Default deployment/scaling
-runs require the chart's matching 0.20 release. Before release, pass a locally
+runs require the chart's matching 0.21 release. Before release, pass a locally
 built role-config candidate. `upgrades` requires an explicit baseline candidate.
 
 ## Shared image upgrades and rollback

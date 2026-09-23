@@ -41,6 +41,7 @@ defaults:
         retry: {maxAttempts: 10, backoff: 100ms, maxBackoff: 10s}
 stores:
   mongo:
+    maxConcurrent: 96 # Shared adaptive ceiling per Engine/Worker process.
     kafka:
       topic: {retention: 72h}
       deadLetterTopic: {name: mongo-rejected, retention: 720h}

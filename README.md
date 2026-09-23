@@ -1,7 +1,7 @@
 # Sink Helm charts
 
 One release deploys a shared Gateway and independent Engine/Worker Deployments
-for each Store. Chart **0.9.1** targets Sink **0.20.0** and Kubernetes **1.30+**.
+for each Store. Chart **0.10.0** targets Sink **0.21.0** and Kubernetes **1.30+**.
 Values are the only configuration source: the chart generates role and Store
 configuration, while existing Secrets provide credential values.
 
@@ -41,6 +41,7 @@ the Store names, credential references and Kafka broker addresses.
 stores:
   orders:
     phase: active
+    maxConcurrent: 96 # Optional per-process ceiling for Engine and Worker.
     storage:
       driver: mongodb
       mongodb:
