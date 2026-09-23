@@ -37,17 +37,17 @@ def main():
         documents = [doc for doc in yaml.safe_load_all(rendered) if doc]
         configs = {doc["metadata"]["name"]: doc["data"] for doc in documents if doc["kind"] == "ConfigMap"}
         deployments = [doc for doc in documents if doc["kind"] == "Deployment"]
-        with tempfile.TemporaryDirectory(prefix="sink-chart-config-") as directory:
-            root = Path(directory)
-            root.chmod(0o755)  # Public fixtures readable by the image's nonroot UID.
-            for name, value in {
-                "mongodb-uri": "mongodb://example.invalid:27017",
-                "search-username": "fixture",
-                "search-password": "  fixture:$#quotes\"'\\\nunicode-雪 \n",
-                "search-api-key": "fixture-key",
-            }.items():
-                (root / name).write_text(value)
-            for deployment in deployments:
+        for deployment in deployments:
+            with tempfile.TemporaryDirectory(prefix="sink-chart-config-") as directory:
+                root = Path(directory)
+                root.chmod(0o755)  # Public fixtures readable by the image's nonroot UID.
+                for name, value in {
+                    "mongodb-uri": "mongodb://example.invalid:27017",
+                    "search-username": "fixture",
+                    "search-password": "  fixture:$#quotes\"'\\\nunicode-雪 \n",
+                    "search-api-key": "fixture-key",
+                }.items():
+                    (root / name).write_text(value)
                 pod = deployment["spec"]["template"]["spec"]
                 for source in pod["volumes"][0]["projected"]["sources"]:
                     for filename, content in configs[source["configMap"]["name"]].items():
