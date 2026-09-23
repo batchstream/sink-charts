@@ -158,8 +158,8 @@ these checks. Store lifecycle checks apply independently.
 Rolling upgrades require compatible application configuration, forwarding and
 Kafka formats because old and new Pods coexist during replacement. Qualify the
 specific image pair using the upgrade scenario. For incompatible versions, use
-a separate matching cluster and a coordinated cutover. Chart 0.9 targets Sink
-0.19; it does not provide mixed-version compatibility with 0.18 or older.
+a separate matching cluster and a coordinated cutover. Chart 0.10 targets Sink
+0.21; it does not qualify mixed-version compatibility with 0.20 or older.
 
 ### Drain timing
 
