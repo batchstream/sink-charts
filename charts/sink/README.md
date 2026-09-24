@@ -19,6 +19,7 @@ defaults:
   engine:
     config:
       batching: {maxOperations: 32, maxWait: 2ms}
+      executionQueue: {maxTasks: 10000, maxBytes: 128MiB}
   worker:
     enabled: false
 stores:
@@ -44,6 +45,21 @@ Sink YAML; opaque Kubernetes/KEDA objects keep their own keys. Unknown fields,
 old paths and settings for the wrong role are rejected. References `{name, key}`
 point to externally managed Secrets in the release namespace. The chart does not
 read, create or delete Secret values.
+
+## Unified Engine admission
+
+`defaults.engine.config.executionQueue` (or the corresponding per-Store Engine
+configuration) renders `execution.queue`. `maxTasks` limits ready batches and
+individual Native calls in one FIFO; a batch is one task, not one task per
+operation. `maxBytes` is shared waiting bytes across batch collection and
+admission. It is not a per-method quota or an execution-concurrency limit.
+`batching.queue` still bounds each collection queue; `stores.<name>.maxConcurrent`
+is the independent adaptive execution ceiling. Worker and Gateway reject
+`executionQueue`.
+
+This setting requires the server implementation of unified admission. When
+qualifying an unreleased candidate, override the image accordingly; do not enable
+it against an older pinned image that does not accept `execution.queue`.
 
 ## Global and Store fields
 

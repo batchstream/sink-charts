@@ -130,6 +130,7 @@ defaults:
       logging: {}
       memory: {}
       batching: {}
+      executionQueue: {} # Unified ready-task count and Store-wide waiting bytes.
       kafkaProducer: {}
       grpc: {}
     # Container resources, environment, labels and scheduling.

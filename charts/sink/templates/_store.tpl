@@ -45,8 +45,12 @@
 
 {{- define "sink.roleConfig" -}}
 {{- $config := include "sink.configFields" .settings.config | fromJson -}}
-{{- with $config.merge -}}{{- $_ := set $config "execution" (dict "merge" .) -}}{{- end -}}
+{{- $execution := dict -}}
+{{- with $config.merge -}}{{- $_ := set $execution "merge" . -}}{{- end -}}
+{{- with $config.execution_queue -}}{{- $_ := set $execution "queue" . -}}{{- end -}}
+{{- if $execution -}}{{- $_ := set $config "execution" $execution -}}{{- end -}}
 {{- $_ := unset $config "merge" -}}
+{{- $_ := unset $config "execution_queue" -}}
 {{- $_ := set $config "mode" .role -}}
 {{- $_ := set $config "health" (dict "address" ":8081") -}}
 {{- $_ := set $config "prometheus" (dict "enabled" .root.Values.metrics.enabled "address" ":9090") -}}

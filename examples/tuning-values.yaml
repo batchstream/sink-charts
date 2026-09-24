@@ -1,5 +1,6 @@
 # Overlay cluster-values.yaml. All application fields are camelCase.
 # Empty maps in values.yaml inherit Sink defaults; this overlay makes tuning explicit.
+# executionQueue requires a server image with unified admission support.
 gateway:
   config:
     grpc: {maxReceiveMessageBytes: 64MiB, maxSendMessageBytes: 64MiB}
@@ -11,6 +12,7 @@ defaults:
     config:
       grpc: {maxReceiveMessageBytes: 64MiB, maxSendMessageBytes: 64MiB}
       memory: {maxBytes: 1GiB, highWatermarkPercent: 80, lowWatermarkPercent: 70}
+      executionQueue: {maxTasks: 10000, maxBytes: 128MiB}
       batching:
         maxWait: 2ms
         maxOperations: 32
