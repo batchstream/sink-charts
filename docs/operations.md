@@ -2,9 +2,9 @@
 
 ## Configuration and initial admission
 
-Chart 0.10 uses a shared `stores.<name>.storage` object for each Engine/Worker
+Chart 0.11 uses a shared `stores.<name>.storage` object for each Engine/Worker
 pair. **Maintain only values, not a separate Sink config YAML.** The chart generates
-the complete configuration for every role. It requires Sink 0.21.0+. Store map keys remain stable Sink identities;
+the complete configuration for every role. It requires Sink 0.22.0+. Store map keys remain stable Sink identities;
 changing a key creates a different Store. Only active Stores appear in the Gateway routes.
 
 Common operational values are an abstraction over Sink configuration: listener
@@ -158,8 +158,8 @@ these checks. Store lifecycle checks apply independently.
 Rolling upgrades require compatible application configuration, forwarding and
 Kafka formats because old and new Pods coexist during replacement. Qualify the
 specific image pair using the upgrade scenario. For incompatible versions, use
-a separate matching cluster and a coordinated cutover. Chart 0.10 targets Sink
-0.21; it does not qualify mixed-version compatibility with 0.20 or older.
+a separate matching cluster and a coordinated cutover. Chart 0.11 targets Sink
+0.22; it does not qualify mixed-version compatibility with 0.21 or older.
 
 ### Drain timing
 
