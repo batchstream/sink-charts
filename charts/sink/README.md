@@ -1,6 +1,6 @@
 # Sink values reference
 
-Chart **0.10.0** targets Sink **0.21.0** and Kubernetes **1.30+**. Values configure
+Chart **0.11.0** targets Sink **0.22.0** and Kubernetes **1.30+**. Values configure
 a shared Gateway and a separate Engine/optional Worker for each Store. The chart
 generates `sink.yaml` per role and a shared `store.yaml` per Store. There is no
 separate application configuration file to maintain.
@@ -19,6 +19,7 @@ defaults:
   engine:
     config:
       batching: {maxOperations: 32, maxWait: 2ms}
+      executionQueue: {maxTasks: 10000, maxBytes: 128MiB}
   worker:
     enabled: false
 stores:
@@ -45,6 +46,21 @@ old paths and settings for the wrong role are rejected. References `{name, key}`
 point to externally managed Secrets in the release namespace. The chart does not
 read, create or delete Secret values.
 
+## Unified Engine admission
+
+`defaults.engine.config.executionQueue` (or the corresponding per-Store Engine
+configuration) renders `execution.queue`. `maxTasks` limits ready batches and
+individual Native calls in one FIFO; a batch is one task, not one task per
+operation. `maxBytes` is shared waiting bytes across batch collection and
+admission. It is not a per-method quota or an execution-concurrency limit.
+`batching.queue` still bounds each collection queue; `stores.<name>.maxConcurrent`
+is the independent adaptive execution ceiling. Worker and Gateway reject
+`executionQueue`.
+
+This setting requires the server implementation of unified admission. When
+qualifying an unreleased candidate, override the image accordingly; do not enable
+it against an older pinned image that does not accept `execution.queue`.
+
 ## Global and Store fields
 
 Unless marked required, fields are optional. Defaults below are from this Chart
@@ -55,7 +71,7 @@ or the targeted Sink version; a different image version may have different appli
 | `nameOverride` | Replace the Chart name in resource names | Empty |
 | `fullnameOverride` | Replace the complete release resource prefix | Empty |
 | `image.repository` | Container repository | `ghcr.io/batchstream/sink` |
-| `image.tag` | Version tag | `0.21.0` |
+| `image.tag` | Version tag | `0.22.0` |
 | `image.digest` | Immutable image selector, preferred over tag | Empty or `sha256:<64 hex characters>` |
 | `image.pullPolicy` | Kubernetes pull policy | `IfNotPresent`; `Always`, `IfNotPresent`, `Never` |
 | `image.pullSecrets` | Registry Secret references for every component | `[]`; list of `{name}` |

@@ -2,6 +2,7 @@
 {{- define "sink.configFields" -}}
 {{- $names := dict
   "batchSize" "batch_size"
+  "executionQueue" "execution_queue"
   "exportTimeout" "export_timeout"
   "flushInterval" "flush_interval"
   "groupId" "group_id"
@@ -26,6 +27,7 @@
   "maxResultBytes" "max_result_bytes"
   "maxSendMessageBytes" "max_send_message_bytes"
   "maxSourceBytes" "max_source_bytes"
+  "maxTasks" "max_tasks"
   "maxWait" "max_wait"
   "processingTimeout" "processing_timeout"
   "queueSize" "queue_size"

@@ -9,7 +9,7 @@ fullnameOverride: ''
 # One shared image and registry configuration for every Gateway, Engine and Worker.
 image:
   repository: ghcr.io/batchstream/sink
-  tag: 0.21.0
+  tag: 0.22.0
   digest: ''
   pullPolicy: IfNotPresent
   pullSecrets: []
@@ -130,6 +130,7 @@ defaults:
       logging: {}
       memory: {}
       batching: {}
+      executionQueue: {} # Unified ready-task count and Store-wide waiting bytes.
       kafkaProducer: {}
       grpc: {}
     # Container resources, environment, labels and scheduling.

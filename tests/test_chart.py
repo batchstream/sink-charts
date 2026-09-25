@@ -92,7 +92,10 @@ class ChartTests(unittest.TestCase):
         }
         execution = {"merge": merge}
         for role in ["engine", "worker"]:
-            self.assertEqual(configs[role]["execution"], execution)
+            expected = copy.deepcopy(execution)
+            if role == "engine":
+                expected["queue"] = {"max_tasks": 10000, "max_bytes": "128MiB"}
+            self.assertEqual(configs[role]["execution"], expected)
             self.assertNotIn("merge", configs[role])
         store = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-store"]["data"]["store.yaml"])
         self.assertEqual(store["max_concurrent"], 96)
@@ -115,6 +118,23 @@ class ChartTests(unittest.TestCase):
             "retry": {"max_attempts": 10, "backoff": "100ms", "max_backoff": "10s"},
         }
         self.assertEqual(configs["worker"]["consumer"], consumer)
+
+    def test_execution_queue_is_engine_only_and_independent_of_batching(self):
+        values = copy.deepcopy(BASE)
+        values.setdefault("defaults", {}).setdefault("engine", {})["config"] = {
+            "executionQueue": {"maxTasks": 7, "maxBytes": "256MiB"}
+        }
+        docs = self.manifests(values)
+        config = yaml.safe_load(docs["ConfigMap", "test-sink-mongo-engine"]["data"]["sink.yaml"])
+        self.assertEqual(config["execution"], {"queue": {"max_tasks": 7, "max_bytes": "256MiB"}})
+        self.assertNotIn("execution_queue", config)
+        for queue in [{"maxTasks": 0}, {"maxOperations": 10}]:
+            invalid = copy.deepcopy(values)
+            invalid["defaults"]["engine"]["config"]["executionQueue"] = queue
+            self.assertNotEqual(render(invalid).returncode, 0)
+        invalid = copy.deepcopy(BASE)
+        invalid["defaults"]["worker"]["config"]["executionQueue"] = {"maxTasks": 7}
+        self.assertNotEqual(render(invalid).returncode, 0)
 
     def test_kafka_scaler_settings_do_not_change_store_or_pods(self):
         values = copy.deepcopy(BASE)

@@ -1222,6 +1222,28 @@
                   }
                 }
               }
+            },
+            "executionQueue": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "maxTasks": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxBytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[1-9][0-9]*(KiB|MiB|GiB)?$"
+                    }
+                  ]
+                }
+              }
             }
           }
         },
