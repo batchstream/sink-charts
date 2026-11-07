@@ -1,5 +1,11 @@
 # Sink Helm charts
 
+> [!IMPORTANT]
+> **Archived.** Sink has been replaced by [Weir](https://github.com/batchstream/weir),
+> which deploys with the chart in
+> [weir-charts](https://github.com/batchstream/weir-charts). Releases up to v0.11.0
+> remain available but receive no fixes.
+
 One release deploys a shared Gateway and independent Engine/Worker Deployments
 for each Store. Chart **0.11.0** targets Sink **0.22.0** and Kubernetes **1.30+**.
 Values are the only configuration source: the chart generates role and Store
